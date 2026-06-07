@@ -39,9 +39,9 @@ git submodule update --init --recursive   # whisper.cpp
 
 These were required because the spec versions/APIs do not build as written:
 
-1. **AGP 8.5.0 → 8.9.1** (`03_SETUP_ENVIRONMENT.md`). AGP 8.5 cannot compile against `compileSdk 36`
+1. **AGP 8.5.0 → 8.9.1** (`planning/03_SETUP_ENVIRONMENT.md`). AGP 8.5 cannot compile against `compileSdk 36`
    (Android 16). 8.9.x adds API-36 support. Gradle bumped to 8.11.1 to match.
-2. **Kotlin 2.0.0 + Compose compiler plugin** (`03_SETUP_ENVIRONMENT.md`). Under Kotlin 2.0 the
+2. **Kotlin 2.0.0 + Compose compiler plugin** (`planning/03_SETUP_ENVIRONMENT.md`). Under Kotlin 2.0 the
    Compose compiler is a Gradle plugin (`org.jetbrains.kotlin.plugin.compose`). The spec's
    `composeOptions.kotlinCompilerExtensionVersion` is obsolete and was removed.
 3. **`gradleLocalProperties(...)` internal API → plain `Properties` loader** for `DRIVE_CLIENT_ID`.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-This repository currently contains only planning documents — no Android project has been scaffolded yet. The documents describe the full specification for the FieldNotes Android app. Read `00_MASTER_PROMPT.md` for the intended build orchestration strategy (phased sub-agents).
+The Android project has been scaffolded and builds (see `BUILD_NOTES.md` for the toolchain and the spec corrections that were required to compile). The original specification documents live in `planning/`; `planning/00_MASTER_PROMPT.md` describes the intended build orchestration strategy.
 
 ## What is being built
 
@@ -46,7 +46,7 @@ Add to `local.properties` (never commit this file):
 sdk.dir=/path/to/Android/Sdk
 drive.client.id=YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com
 ```
-See `11_GOOGLE_CLOUD_SETUP.md` for how to obtain the OAuth client ID.
+See `planning/11_GOOGLE_CLOUD_SETUP.md` for how to obtain the OAuth client ID.
 
 ## Architecture
 
@@ -62,7 +62,7 @@ See `11_GOOGLE_CLOUD_SETUP.md` for how to obtain the OAuth client ID.
 
 **Package layout:** `com.fieldnotes.app/{core/{audio,whisper,storage,sync}, data/{db,repository}, ui/{recorder,recordings,transcription,notes,settings,common}, widget, service, di}`
 
-**Room tables:** `recordings`, `notes`, `sync_queue` — see `02_ARCHITECTURE.md` for full schema.
+**Room tables:** `recordings`, `notes`, `sync_queue` — see `planning/02_ARCHITECTURE.md` for full schema.
 
 **Local file storage:** `app.filesDir/{recordings/, voice/, notes/, whisper/, temp/}`
 
@@ -73,5 +73,5 @@ See `11_GOOGLE_CLOUD_SETUP.md` for how to obtain the OAuth client ID.
 - All code Kotlin only. UI is Jetpack Compose (Material 3) — no XML layouts.
 - ABI targets: `arm64-v8a` (Pixel 8) + `x86_64` (emulator).
 - Every source file should include a header comment naming which spec document it implements.
-- `MarkdownManager.prependEntry()` must sanitise filenames (path traversal prevention) — see test cases in `10_TESTING_PLAN.md`.
+- `MarkdownManager.prependEntry()` must sanitise filenames (path traversal prevention) — see test cases in `planning/10_TESTING_PLAN.md`.
 - `MarkdownManager` has a 100% line coverage target; it is the most critical unit to test.
