@@ -1,0 +1,11 @@
+# FieldNotes — .gitignore
+*.iml
+.gradle/
+/local.properties
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx/
+**/build/
+# whisper.cpp is added as a git submodule; its working tree is tracked via .gitmodules

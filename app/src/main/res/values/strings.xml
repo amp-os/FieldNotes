@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FieldNotes — strings.xml | Authored by: lead architect | Implements: 08_UI_MODULE.md / 09_WIDGET_MODULE.md -->
+<resources>
+    <string name="app_name">FieldNotes</string>
+    <string name="widget_description">Start a field recording or voice note</string>
+    <string name="qs_tile_label">Voice Note</string>
+    <string name="recording_channel_name">Recording</string>
+    <string name="recording_channel_desc">Shown while FieldNotes is recording audio</string>
+</resources>

@@ -1,0 +1,77 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project status
+
+This repository currently contains only planning documents — no Android project has been scaffolded yet. The documents describe the full specification for the FieldNotes Android app. Read `00_MASTER_PROMPT.md` for the intended build orchestration strategy (phased sub-agents).
+
+## What is being built
+
+**FieldNotes** — an Android app (`com.fieldnotes.app`, min SDK 26, target SDK 36) with two recording modes:
+- **Field Recording**: lossless FLAC/WAV audio at 48kHz, archived to Google Drive
+- **Voice Notes**: AAC-LC at 16kHz, with fully on-device transcription via whisper.cpp, output as Markdown files synced to Drive
+
+Privacy-first: no audio ever leaves the device for processing.
+
+## Build commands (once project is scaffolded)
+
+```bash
+# Debug build (verifies compilation)
+./gradlew assembleDebug
+
+# Fast unit + integration tests
+./gradlew test
+
+# Slow tests only (Whisper transcription — requires model file)
+./gradlew test -Dtag=slow
+
+# UI tests (requires emulator or device)
+./gradlew connectedAndroidTest
+```
+
+APK output: `app/build/outputs/apk/debug/app-debug.apk`
+
+## One-time setup
+
+```bash
+# Add whisper.cpp as a submodule
+cd app/src/main/cpp
+git submodule add https://github.com/ggerganov/whisper.cpp
+git submodule update --init --recursive
+```
+
+Add to `local.properties` (never commit this file):
+```properties
+sdk.dir=/path/to/Android/Sdk
+drive.client.id=YOUR_OAUTH_CLIENT_ID.apps.googleusercontent.com
+```
+See `11_GOOGLE_CLOUD_SETUP.md` for how to obtain the OAuth client ID.
+
+## Architecture
+
+**Pattern:** MVVM + Repository, Hilt DI, Coroutines + StateFlow/SharedFlow throughout (no RxJava).
+
+**Key design decisions in the specs:**
+- whisper.cpp is integrated via JNI (CMake submodule at `app/src/main/cpp/whisper.cpp/`). The JNI bridge is `whisper_jni.cpp`. CMake flags `WHISPER_NO_AVX/AVX2/FMA` are required for emulator compatibility.
+- Drive sync degrades gracefully: the app must fully function without OAuth credentials configured. All pending uploads queue in Room (`sync_queue` table) and fire via WorkManager (`SyncWorker`).
+- `DRIVE_CLIENT_ID` is injected as a `BuildConfig` field from `local.properties` at build time.
+- Field recordings use `AudioRecord` (raw PCM → FLAC via JNI); voice notes use `MediaRecorder` (AAC-LC directly). The two paths are intentionally different.
+- Voice notes are recorded at 16kHz mono to match Whisper's native input — no resampling needed for transcription.
+- Markdown files use a prepend pattern: new transcription entries go *above* existing entries, below the H1 title.
+
+**Package layout:** `com.fieldnotes.app/{core/{audio,whisper,storage,sync}, data/{db,repository}, ui/{recorder,recordings,transcription,notes,settings,common}, widget, service, di}`
+
+**Room tables:** `recordings`, `notes`, `sync_queue` — see `02_ARCHITECTURE.md` for full schema.
+
+**Local file storage:** `app.filesDir/{recordings/, voice/, notes/, whisper/, temp/}`
+
+**Drive folder structure:** `FieldNotes/{recordings/, voice/, notes/}`
+
+## Critical constraints
+
+- All code Kotlin only. UI is Jetpack Compose (Material 3) — no XML layouts.
+- ABI targets: `arm64-v8a` (Pixel 8) + `x86_64` (emulator).
+- Every source file should include a header comment naming which spec document it implements.
+- `MarkdownManager.prependEntry()` must sanitise filenames (path traversal prevention) — see test cases in `10_TESTING_PLAN.md`.
+- `MarkdownManager` has a 100% line coverage target; it is the most critical unit to test.
