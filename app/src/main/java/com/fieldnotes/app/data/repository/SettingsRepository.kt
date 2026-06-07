@@ -11,6 +11,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.fieldnotes.app.core.audio.CompletedRecording
+import com.fieldnotes.app.core.audio.RecordingMode
 import com.fieldnotes.app.core.whisper.WhisperModelManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +34,20 @@ class SettingsRepository @Inject constructor(
     val selectedModel: Flow<String> = store.data.map { it[KEY_MODEL] ?: WhisperModelManager.BASE_MODEL }
     val audioSourceFlow: Flow<Int> = store.data.map { it[KEY_AUDIO_SOURCE] ?: AudioSource.MIC }
 
+    /**
+     * A just-finished recording awaiting its post-stop screen (transcription for voice, detail for
+     * field). Persisted so a capture started from the widget/QS tile is still routed when the app
+     * next becomes visible. Encoded as "MODE|id".
+     */
+    val pendingCompletion: Flow<CompletedRecording?> = store.data.map { prefs ->
+        prefs[KEY_PENDING_COMPLETION]?.let { encoded ->
+            val mode = encoded.substringBefore('|', "")
+            val id = encoded.substringAfter('|', "")
+            if (id.isBlank()) null
+            else runCatching { CompletedRecording(id, RecordingMode.valueOf(mode)) }.getOrNull()
+        }
+    }
+
     suspend fun fieldFormatIsWav(): Boolean = fieldFormat.first() == FORMAT_WAV
     suspend fun audioSource(): Int = audioSourceFlow.first()
     suspend fun isWifiOnly(): Boolean = wifiOnlySync.first()
@@ -41,6 +57,11 @@ class SettingsRepository @Inject constructor(
     suspend fun setSelectedModel(model: String) = store.edit { it[KEY_MODEL] = model }
     suspend fun setAudioSource(source: Int) = store.edit { it[KEY_AUDIO_SOURCE] = source }
 
+    suspend fun setPendingCompletion(rec: CompletedRecording) =
+        store.edit { it[KEY_PENDING_COMPLETION] = "${rec.mode.name}|${rec.recordingId}" }
+
+    suspend fun clearPendingCompletion() = store.edit { it.remove(KEY_PENDING_COMPLETION) }
+
     companion object {
         const val FORMAT_FLAC = "FLAC"
         const val FORMAT_WAV = "WAV"
@@ -49,5 +70,6 @@ class SettingsRepository @Inject constructor(
         private val KEY_FIELD_FORMAT = stringPreferencesKey("field_format")
         private val KEY_MODEL = stringPreferencesKey("whisper_model")
         private val KEY_AUDIO_SOURCE = intPreferencesKey("audio_source")
+        private val KEY_PENDING_COMPLETION = stringPreferencesKey("pending_completion")
     }
 }

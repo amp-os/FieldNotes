@@ -13,7 +13,6 @@ import com.fieldnotes.app.data.repository.SettingsRepository
 import com.fieldnotes.app.service.RecordingService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -31,8 +30,16 @@ class RecorderViewModel @Inject constructor(
     val session: StateFlow<RecordingSession?> = sessionManager.session
     val amplitude: StateFlow<Float> = sessionManager.amplitude
 
-    /** One-shot completion events; the UI navigates to transcription for voice notes. */
-    val completed: SharedFlow<CompletedRecording> = sessionManager.completed
+    /**
+     * A just-finished recording awaiting its post-stop screen. Persisted (DataStore-backed), so a
+     * capture started from the widget/QS tile is still routed when the app next becomes visible.
+     */
+    val pendingCompletion: StateFlow<CompletedRecording?> = settingsRepository.pendingCompletion
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun consumePendingCompletion() {
+        viewModelScope.launch { settingsRepository.clearPendingCompletion() }
+    }
 
     val headsetConnected: StateFlow<Boolean> = audioInputRouter.headsetMicConnected()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)

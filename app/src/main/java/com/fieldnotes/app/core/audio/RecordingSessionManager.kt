@@ -14,15 +14,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -46,13 +42,16 @@ class RecordingSessionManager @Inject constructor(
     private val _amplitude = MutableStateFlow(0f)
     val amplitude: StateFlow<Float> = _amplitude.asStateFlow()
 
-    /** Emitted when a recording finishes saving. VOICE notes carry a recordingId for transcription. */
-    private val _completed = MutableSharedFlow<CompletedRecording>(extraBufferCapacity = 4)
-    val completed: SharedFlow<CompletedRecording> = _completed.asSharedFlow()
-
     private var voiceRecorder: MediaRecorder? = null
     private var voicePcmAmplitudeJob: Job? = null
     private var amplitudeMirrorJob: Job? = null
+
+    // Latest selected input source, kept warm so start() never blocks the main thread on DataStore.
+    @Volatile private var cachedAudioSource: Int = MediaRecorder.AudioSource.MIC
+
+    init {
+        scope.launch { settingsRepository.audioSourceFlow.collect { cachedAudioSource = it } }
+    }
 
     val isRecording: Boolean get() = _session.value != null
 
@@ -67,8 +66,7 @@ class RecordingSessionManager @Inject constructor(
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     private fun startField() {
-        val source = runBlocking { settingsRepository.audioSource() }
-        audioRecorder.start(RecordingMode.FIELD, source, scope)
+        audioRecorder.start(RecordingMode.FIELD, cachedAudioSource, scope)
         _session.value = RecordingSession(RecordingMode.FIELD, SystemClock.elapsedRealtime())
         amplitudeMirrorJob = scope.launch {
             audioRecorder.amplitude.collect { _amplitude.value = it }
@@ -106,8 +104,7 @@ class RecordingSessionManager @Inject constructor(
                     val preferWav = settingsRepository.fieldFormatIsWav()
                     val (sampleRate, channels) = 48000 to 2
                     val output = audioEncoder.encodeField(pcm, sampleRate, channels, preferWav)
-                    val id = recordingRepository.saveFieldRecording(output, durationMs, sampleRate)
-                    _completed.emit(CompletedRecording(id, RecordingMode.FIELD))
+                    recordingRepository.saveFieldRecording(output, durationMs, sampleRate)
                 }
                 RecordingMode.VOICE_NOTE -> {
                     val recorder = voiceRecorder
@@ -118,7 +115,7 @@ class RecordingSessionManager @Inject constructor(
                     recorder?.release()
                     val file = current.voiceFile ?: error("voice file missing")
                     val id = recordingRepository.saveVoiceNote(file, durationMs)
-                    _completed.emit(CompletedRecording(id, RecordingMode.VOICE_NOTE))
+                    settingsRepository.setPendingCompletion(CompletedRecording(id, RecordingMode.VOICE_NOTE))
                 }
             }
         } catch (e: Exception) {

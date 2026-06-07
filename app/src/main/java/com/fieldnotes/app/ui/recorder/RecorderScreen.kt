@@ -65,13 +65,14 @@ fun RecorderScreen(
     }
     val permissionState = rememberMultiplePermissionsState(permissions)
 
-    // Route voice-note completions to the transcription screen.
-    LaunchedEffect(Unit) {
-        viewModel.completed.collect { completed ->
-            if (completed.mode == RecordingMode.VOICE_NOTE) {
-                onNavigateToTranscription(completed.recordingId)
-            }
-        }
+    // Route completed recordings. This is driven by a *persisted* pending-completion (not a transient
+    // event), so a voice note started from the widget/Quick-Settings tile — while this screen isn't
+    // composed — still opens the transcription screen the next time the app is shown.
+    val pendingCompletion by viewModel.pendingCompletion.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingCompletion) {
+        val pending = pendingCompletion ?: return@LaunchedEffect
+        viewModel.consumePendingCompletion()
+        onNavigateToTranscription(pending.recordingId)
     }
 
     val isRecording = session != null
@@ -130,7 +131,9 @@ fun RecorderScreen(
                 ModeButton(
                     title = "FIELD REC",
                     subtitle = "lossless",
-                    enabled = permissionState.allPermissionsGranted || true,
+                    // Always tappable: a tap either starts recording or triggers the permission
+                    // request. Disabling it would leave no way to grant the permission.
+                    enabled = true,
                     modifier = Modifier.weight(1f),
                 ) {
                     if (permissionState.allPermissionsGranted) viewModel.startField()
