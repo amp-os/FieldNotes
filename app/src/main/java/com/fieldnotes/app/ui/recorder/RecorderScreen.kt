@@ -51,6 +51,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun RecorderScreen(
     onNavigateToTranscription: (String) -> Unit,
+    onNavigateToRecordingDetail: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: RecorderViewModel = hiltViewModel(),
 ) {
@@ -72,7 +73,10 @@ fun RecorderScreen(
     LaunchedEffect(pendingCompletion) {
         val pending = pendingCompletion ?: return@LaunchedEffect
         viewModel.consumePendingCompletion()
-        onNavigateToTranscription(pending.recordingId)
+        when (pending.mode) {
+            RecordingMode.VOICE_NOTE -> onNavigateToTranscription(pending.recordingId)
+            RecordingMode.FIELD -> onNavigateToRecordingDetail(pending.recordingId)
+        }
     }
 
     val isRecording = session != null

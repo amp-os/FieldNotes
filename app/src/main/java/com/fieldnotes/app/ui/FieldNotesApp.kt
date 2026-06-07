@@ -29,6 +29,7 @@ import androidx.navigation.navArgument
 import com.fieldnotes.app.ui.notes.NoteViewScreen
 import com.fieldnotes.app.ui.recorder.RecorderScreen
 import com.fieldnotes.app.ui.recordings.LibraryScreen
+import com.fieldnotes.app.ui.recordings.RecordingDetailScreen
 import com.fieldnotes.app.ui.settings.SettingsScreen
 import com.fieldnotes.app.ui.transcription.TranscriptionScreen
 
@@ -78,11 +79,13 @@ fun FieldNotesApp(navController: NavHostController = rememberNavController()) {
             composable(TopDest.Recorder.route) {
                 RecorderScreen(
                     onNavigateToTranscription = { id -> navController.navigate("transcription/$id") },
+                    onNavigateToRecordingDetail = { id -> navController.navigate("recordingDetail/$id") },
                 )
             }
             composable(TopDest.Library.route) {
                 LibraryScreen(
                     onOpenNote = { filename -> navController.navigate("note/${Uri.encode(filename)}") },
+                    onOpenRecording = { id -> navController.navigate("recordingDetail/$id") },
                     onSetupSync = { navController.navigate(TopDest.Settings.route) },
                 )
             }
@@ -95,6 +98,12 @@ fun FieldNotesApp(navController: NavHostController = rememberNavController()) {
                     onSaved = { navController.popBackStack() },
                     onDiscarded = { navController.popBackStack() },
                 )
+            }
+            composable(
+                route = "recordingDetail/{recordingId}",
+                arguments = listOf(navArgument("recordingId") { type = NavType.StringType }),
+            ) {
+                RecordingDetailScreen(onBack = { navController.popBackStack() })
             }
             composable(
                 route = "note/{filename}",

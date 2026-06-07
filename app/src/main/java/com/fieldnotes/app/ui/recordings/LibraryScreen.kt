@@ -1,25 +1,28 @@
 // FieldNotes — LibraryScreen.kt
 // Authored by: ui module | Implements: 08_UI_MODULE.md (Library: Recordings + Notes tabs)
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 
 package com.fieldnotes.app.ui.recordings
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -50,11 +53,14 @@ import java.util.Locale
 @Composable
 fun LibraryScreen(
     onOpenNote: (String) -> Unit,
+    onOpenRecording: (String) -> Unit,
     onSetupSync: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: RecordingsViewModel = hiltViewModel(),
 ) {
-    val recordings by viewModel.recordings.collectAsStateWithLifecycle()
+    val recordings by viewModel.filteredRecordings.collectAsStateWithLifecycle()
+    val labels by viewModel.allLabels.collectAsStateWithLifecycle()
+    val selectedLabel by viewModel.selectedLabel.collectAsStateWithLifecycle()
     val notes by viewModel.notes.collectAsStateWithLifecycle()
     val showBanner by viewModel.showSyncBanner.collectAsStateWithLifecycle()
     var tab by remember { mutableIntStateOf(0) }
@@ -77,29 +83,64 @@ fun LibraryScreen(
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Notes") })
         }
         when (tab) {
-            0 -> RecordingsList(recordings, onDelete = viewModel::delete)
+            0 -> RecordingsList(
+                recordings = recordings,
+                labels = labels,
+                selectedLabel = selectedLabel,
+                onSelectLabel = viewModel::setLabelFilter,
+                onOpen = onOpenRecording,
+                onDelete = viewModel::delete,
+            )
             else -> NotesList(notes.map { it.filename }, onOpenNote = onOpenNote)
         }
     }
 }
 
 @Composable
-private fun RecordingsList(recordings: List<RecordingEntity>, onDelete: (String) -> Unit) {
-    if (recordings.isEmpty()) {
-        EmptyState("No recordings yet")
-        return
-    }
-    LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(recordings, key = { it.id }) { rec ->
-            RecordingCard(rec, onLongPress = { onDelete(rec.id) })
+private fun RecordingsList(
+    recordings: List<RecordingEntity>,
+    labels: List<String>,
+    selectedLabel: String?,
+    onSelectLabel: (String?) -> Unit,
+    onOpen: (String) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        if (labels.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(
+                    selected = selectedLabel == null,
+                    onClick = { onSelectLabel(null) },
+                    label = { Text("All") },
+                )
+                labels.forEach { label ->
+                    FilterChip(
+                        selected = selectedLabel == label,
+                        onClick = { onSelectLabel(if (selectedLabel == label) null else label) },
+                        label = { Text(label) },
+                    )
+                }
+            }
+        }
+        if (recordings.isEmpty()) {
+            EmptyState(if (selectedLabel != null) "No recordings with #$selectedLabel" else "No recordings yet")
+            return@Column
+        }
+        LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(recordings, key = { it.id }) { rec ->
+                RecordingCard(rec, onClick = { onOpen(rec.id) }, onLongPress = { onDelete(rec.id) })
+            }
         }
     }
 }
 
 @Composable
-private fun RecordingCard(rec: RecordingEntity, onLongPress: () -> Unit) {
+private fun RecordingCard(rec: RecordingEntity, onClick: () -> Unit, onLongPress: () -> Unit) {
     Card(
-        Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = onLongPress),
+        Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongPress),
     ) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),

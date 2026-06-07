@@ -104,7 +104,8 @@ class RecordingSessionManager @Inject constructor(
                     val preferWav = settingsRepository.fieldFormatIsWav()
                     val (sampleRate, channels) = 48000 to 2
                     val output = audioEncoder.encodeField(pcm, sampleRate, channels, preferWav)
-                    recordingRepository.saveFieldRecording(output, durationMs, sampleRate)
+                    val id = recordingRepository.saveFieldRecording(output, durationMs, sampleRate)
+                    settingsRepository.setPendingCompletion(CompletedRecording(id, RecordingMode.FIELD))
                 }
                 RecordingMode.VOICE_NOTE -> {
                     val recorder = voiceRecorder
