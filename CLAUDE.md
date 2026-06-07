@@ -14,7 +14,9 @@ The Android project has been scaffolded and builds (see `BUILD_NOTES.md` for the
 
 Privacy-first: no audio ever leaves the device for processing.
 
-## Build commands (once project is scaffolded)
+## Build commands
+
+Building requires **JDK 17** (the system default JDK 26 is unsupported by AGP) and `ANDROID_HOME` set. The build JDK is pinned via `org.gradle.java.home` in `gradle.properties` to a machine-specific path — update/remove it if building elsewhere. See `README.md` / `BUILD_NOTES.md`.
 
 ```bash
 # Debug build (verifies compilation)
@@ -34,10 +36,9 @@ APK output: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## One-time setup
 
+whisper.cpp is already a submodule (`app/src/main/cpp/whisper.cpp`) — after cloning, just initialise it:
+
 ```bash
-# Add whisper.cpp as a submodule
-cd app/src/main/cpp
-git submodule add https://github.com/ggerganov/whisper.cpp
 git submodule update --init --recursive
 ```
 
@@ -53,10 +54,10 @@ See `planning/11_GOOGLE_CLOUD_SETUP.md` for how to obtain the OAuth client ID.
 **Pattern:** MVVM + Repository, Hilt DI, Coroutines + StateFlow/SharedFlow throughout (no RxJava).
 
 **Key design decisions in the specs:**
-- whisper.cpp is integrated via JNI (CMake submodule at `app/src/main/cpp/whisper.cpp/`). The JNI bridge is `whisper_jni.cpp`. CMake flags `WHISPER_NO_AVX/AVX2/FMA` are required for emulator compatibility.
+- whisper.cpp is integrated via JNI (CMake submodule at `app/src/main/cpp/whisper.cpp/`, currently v1.8.6). The JNI bridge is `whisper_jni.cpp`. For x86_64 emulator compatibility the CMake build passes `-DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_NATIVE=OFF` (set in `app/build.gradle.kts`). NOTE: the spec's `WHISPER_NO_AVX*` flags are obsolete and silently ignored by current whisper.cpp.
 - Drive sync degrades gracefully: the app must fully function without OAuth credentials configured. All pending uploads queue in Room (`sync_queue` table) and fire via WorkManager (`SyncWorker`).
 - `DRIVE_CLIENT_ID` is injected as a `BuildConfig` field from `local.properties` at build time.
-- Field recordings use `AudioRecord` (raw PCM → FLAC via JNI); voice notes use `MediaRecorder` (AAC-LC directly). The two paths are intentionally different.
+- Field recordings use `AudioRecord` (raw PCM → FLAC via Android `MediaCodec`, not JNI); voice notes use `MediaRecorder` (AAC-LC directly). The two paths are intentionally different. (JNI is used only for whisper transcription.)
 - Voice notes are recorded at 16kHz mono to match Whisper's native input — no resampling needed for transcription.
 - Markdown files use a prepend pattern: new transcription entries go *above* existing entries, below the H1 title.
 
