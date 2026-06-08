@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -107,6 +108,7 @@ class RecordingDetailViewModel @Inject constructor(
 @Composable
 fun RecordingDetailScreen(
     onBack: () -> Unit,
+    onTranscribe: (String) -> Unit,
     viewModel: RecordingDetailViewModel = hiltViewModel(),
 ) {
     val recording by viewModel.recording.collectAsStateWithLifecycle()
@@ -137,6 +139,10 @@ fun RecordingDetailScreen(
             val audioFile = File(rec.filePath)
             if (audioFile.exists()) {
                 AudioPlayer(audioFile)
+            }
+            Button(onClick = { onTranscribe(rec.id) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = null)
+                Text(if (rec.noteFilename != null) "  Transcribe again" else "  Transcribe")
             }
             val isField = rec.mode == RecordingMode.FIELD.name
             InfoRow("Type", if (isField) "Field recording" else "Voice note")

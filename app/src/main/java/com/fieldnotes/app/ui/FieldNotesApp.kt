@@ -3,6 +3,8 @@
 package com.fieldnotes.app.ui
 
 import android.net.Uri
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
@@ -16,6 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.fieldnotes.app.ui.common.TranscriptionBanner
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -48,6 +53,9 @@ fun FieldNotesApp(navController: NavHostController = rememberNavController()) {
 
     val showBottomBar = currentRoute in topDestinations.map { it.route }
 
+    val chromeViewModel: AppChromeViewModel = hiltViewModel()
+    val backgroundTranscription by chromeViewModel.backgroundTranscription.collectAsStateWithLifecycle()
+
     Scaffold(
         bottomBar = {
             if (showBottomBar) {
@@ -71,11 +79,22 @@ fun FieldNotesApp(navController: NavHostController = rememberNavController()) {
             }
         },
     ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = TopDest.Recorder.route,
-            modifier = Modifier.padding(padding),
-        ) {
+        Column(Modifier.padding(padding)) {
+            // Show a tappable banner for a transcription running/finished in the background, unless
+            // we're already on its screen.
+            val onTranscriptionRoute = currentRoute?.startsWith("transcription") == true
+            val active = backgroundTranscription
+            if (active != null && !onTranscriptionRoute) {
+                TranscriptionBanner(
+                    done = active.done,
+                    onClick = { navController.navigate("transcription/${active.recordingId}") },
+                )
+            }
+            NavHost(
+                navController = navController,
+                startDestination = TopDest.Recorder.route,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) {
             composable(TopDest.Recorder.route) {
                 RecorderScreen(
                     onNavigateToTranscription = { id -> navController.navigate("transcription/$id") },
@@ -103,13 +122,17 @@ fun FieldNotesApp(navController: NavHostController = rememberNavController()) {
                 route = "recordingDetail/{recordingId}",
                 arguments = listOf(navArgument("recordingId") { type = NavType.StringType }),
             ) {
-                RecordingDetailScreen(onBack = { navController.popBackStack() })
+                RecordingDetailScreen(
+                    onBack = { navController.popBackStack() },
+                    onTranscribe = { id -> navController.navigate("transcription/$id") },
+                )
             }
             composable(
                 route = "note/{filename}",
                 arguments = listOf(navArgument("filename") { type = NavType.StringType }),
             ) {
                 NoteViewScreen(onBack = { navController.popBackStack() })
+            }
             }
         }
     }
