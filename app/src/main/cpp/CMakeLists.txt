@@ -16,6 +16,15 @@ set(WHISPER_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
 # (Belt-and-suspenders alongside -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON in build.gradle.kts.)
 add_link_options("-Wl,-z,max-page-size=16384")
 
+# Enable ARM dot-product (sdot/udot), int8 matmul (i8mm) and fp16 on arm64. ggml's quantized
+# kernels (q5_1 etc.) get most of their speed from these int8 dot-product instructions; with
+# GGML_NATIVE=OFF the compiler otherwise targets a generic armv8-a baseline and ggml falls back to
+# slow scalar paths — which is why a quantized base model ran SLOWER than f16. Targets the Pixel 8
+# (Tensor G3: Cortex-X3/A715/A510, armv9 — all support dotprod + i8mm). Must precede add_subdirectory.
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    add_compile_options(-march=armv8.2-a+dotprod+i8mm+fp16)
+endif()
+
 add_subdirectory(whisper.cpp)
 
 add_library(
