@@ -25,6 +25,14 @@ val localProps = Properties().apply {
 }
 val driveClientId: String = localProps.getProperty("drive.client.id", "UNCONFIGURED")
 
+// AppAuth uses Google's reverse-client-ID custom scheme as the OAuth redirect, e.g. client id
+// "1234-abc.apps.googleusercontent.com" -> scheme "com.googleusercontent.apps.1234-abc". The scheme
+// is needed both at build time (AppAuth's RedirectUriReceiverActivity manifest placeholder) and at
+// runtime (to construct the redirect Uri), so it's derived once here.
+val driveRedirectScheme: String = driveClientId
+    .removeSuffix(".apps.googleusercontent.com")
+    .let { prefix -> if (prefix != driveClientId) "com.googleusercontent.apps.$prefix" else "com.fieldnotes.app" }
+
 android {
     namespace = "com.fieldnotes.app"
     compileSdk = 36
@@ -39,6 +47,10 @@ android {
         testInstrumentationRunner = "com.fieldnotes.app.HiltTestRunner"
 
         buildConfigField("String", "DRIVE_CLIENT_ID", "\"$driveClientId\"")
+        buildConfigField("String", "DRIVE_REDIRECT_SCHEME", "\"$driveRedirectScheme\"")
+
+        // AppAuth captures the OAuth redirect via this scheme (see RedirectUriReceiverActivity).
+        manifestPlaceholders["appAuthRedirectScheme"] = driveRedirectScheme
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64") // Pixel 8 = arm64; x86_64 for emulator
@@ -138,6 +150,7 @@ dependencies {
     implementation(libs.google.api.client.android)
     implementation(libs.google.drive.api)
     implementation(libs.google.auth.oauth2)
+    implementation(libs.appauth)
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.datastore.preferences)

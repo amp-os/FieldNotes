@@ -2,7 +2,7 @@
 // Authored by: ui module | Implements: 08_UI_MODULE.md / 07_DRIVE_SYNC_MODULE.md / 05_WHISPER_MODULE.md
 package com.fieldnotes.app.ui.settings
 
-import android.app.Activity
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fieldnotes.app.core.storage.LocalFileManager
@@ -54,7 +54,12 @@ class SettingsViewModel @Inject constructor(
     fun setFieldFormat(format: String) = viewModelScope.launch { settingsRepository.setFieldFormat(format) }
     fun setModel(model: String) = viewModelScope.launch { settingsRepository.setSelectedModel(model) }
 
-    fun connectDrive(activity: Activity) = viewModelScope.launch { driveAuthManager.launchOAuthFlow(activity) }
+    /** Intent that launches the OAuth consent flow; launch via an ActivityResult contract. */
+    fun buildAuthIntent(): Intent? = driveAuthManager.authorizationRequestIntent()
+
+    /** Feed the ActivityResult data back to complete the token exchange. */
+    fun onAuthResult(data: Intent?) = viewModelScope.launch { driveAuthManager.handleAuthorizationResponse(data) }
+
     fun signOut() = viewModelScope.launch { driveAuthManager.signOut() }
 
     fun syncNow() = viewModelScope.launch { syncScheduler.scheduleSync(settingsRepository.isWifiOnly()) }

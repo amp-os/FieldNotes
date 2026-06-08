@@ -1,9 +1,10 @@
 // FieldNotes — DriveAuthManager.kt
 // Authored by: drive-sync module | Implements: 07_DRIVE_SYNC_MODULE.md / 11_GOOGLE_CLOUD_SETUP.md
-// OAuth 2.0 installed-app flow with PKCE (required by Google for custom-scheme redirects).
+// OAuth 2.0 native-app flow via AppAuth (RFC 8252): Custom Tabs + PKCE + reverse-client-ID redirect.
+// AppAuth's AuthState (persisted in FieldNotesCredentialStore) owns the access/refresh tokens and
+// performs token refresh automatically.
 package com.fieldnotes.app.core.sync
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -17,15 +18,20 @@ import com.google.api.services.drive.DriveScopes
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import net.openid.appauth.AuthState
+import net.openid.appauth.AuthorizationException
+import net.openid.appauth.AuthorizationRequest
+import net.openid.appauth.AuthorizationResponse
+import net.openid.appauth.AuthorizationService
+import net.openid.appauth.AuthorizationServiceConfiguration
+import net.openid.appauth.ResponseTypeValues
+import net.openid.appauth.TokenResponse
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import java.security.MessageDigest
-import java.security.SecureRandom
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.resume
 
 @Singleton
 class DriveAuthManager @Inject constructor(
@@ -33,17 +39,76 @@ class DriveAuthManager @Inject constructor(
 ) {
     private val credentialStore = FieldNotesCredentialStore(context)
 
+    private val serviceConfig = AuthorizationServiceConfiguration(
+        Uri.parse("https://accounts.google.com/o/oauth2/v2/auth"),
+        Uri.parse("https://oauth2.googleapis.com/token"),
+    )
+
+    private val redirectUri: Uri = Uri.parse("${BuildConfig.DRIVE_REDIRECT_SCHEME}:/oauth2redirect")
+
     /** False when no OAuth client id is configured in local.properties. */
     val isConfigured: Boolean
         get() = BuildConfig.DRIVE_CLIENT_ID.isNotBlank() && BuildConfig.DRIVE_CLIENT_ID != "UNCONFIGURED"
 
-    fun isAuthenticated(): Flow<Boolean> = credentialStore.hasValidTokenFlow
+    fun isAuthenticated(): Flow<Boolean> = credentialStore.isAuthorizedFlow
     fun connectedEmail(): Flow<String?> = credentialStore.emailFlow
+
+    /**
+     * Build the Intent that launches the OAuth consent flow (Custom Tab). Launch it with an
+     * ActivityResult contract; pass the result Intent to [handleAuthorizationResponse].
+     * Returns null when Drive is not configured.
+     */
+    fun authorizationRequestIntent(): Intent? {
+        if (!isConfigured) return null
+        val request = AuthorizationRequest.Builder(
+            serviceConfig,
+            BuildConfig.DRIVE_CLIENT_ID,
+            ResponseTypeValues.CODE,
+            redirectUri,
+        )
+            .setScopes(DriveScopes.DRIVE_FILE, "openid", "email")
+            .setPromptValues(AuthorizationRequest.Prompt.CONSENT) // force refresh-token re-issue
+            .setAdditionalParameters(mapOf("access_type" to "offline"))
+            .build()
+        val service = AuthorizationService(context)
+        return try {
+            service.getAuthorizationRequestIntent(request)
+        } finally {
+            service.dispose()
+        }
+    }
+
+    /** Exchange the auth code from the redirect result for tokens and persist the session. */
+    suspend fun handleAuthorizationResponse(data: Intent?): Boolean = withContext(Dispatchers.IO) {
+        if (data == null) return@withContext false
+        val response = AuthorizationResponse.fromIntent(data) ?: return@withContext false
+        val authState = AuthState(response, AuthorizationException.fromIntent(data))
+        val service = AuthorizationService(context)
+        try {
+            val tokenResponse = suspendCancellableCoroutine { cont ->
+                service.performTokenRequest(response.createTokenExchangeRequest()) { resp, ex ->
+                    cont.resume(resp to ex)
+                }
+            }
+            val (resp, ex) = tokenResponse
+            if (resp == null) return@withContext false
+            authState.update(resp, ex)
+            credentialStore.saveAuthState(authState)
+            credentialStore.saveEmail(extractEmail(resp))
+            true
+        } catch (e: Exception) {
+            false
+        } finally {
+            service.dispose()
+        }
+    }
 
     /** Build an authorised Drive service, or null if unconfigured / not signed in. */
     suspend fun getDriveService(): Drive? = withContext(Dispatchers.IO) {
         if (!isConfigured) return@withContext null
-        val token = freshAccessToken() ?: return@withContext null
+        val authState = credentialStore.readAuthState() ?: return@withContext null
+        if (!authState.isAuthorized) return@withContext null
+        val token = freshAccessToken(authState) ?: return@withContext null
         val initializer = HttpRequestInitializer { request ->
             request.headers.authorization = "Bearer $token"
         }
@@ -52,100 +117,34 @@ class DriveAuthManager @Inject constructor(
             .build()
     }
 
-    /** Launch the system browser for OAuth consent (PKCE). */
-    suspend fun launchOAuthFlow(activity: Activity) {
-        val verifier = generateCodeVerifier()
-        credentialStore.saveCodeVerifier(verifier)
-        val challenge = codeChallenge(verifier)
-        val authUrl = "https://accounts.google.com/o/oauth2/v2/auth" +
-            "?client_id=${enc(BuildConfig.DRIVE_CLIENT_ID)}" +
-            "&redirect_uri=${enc(REDIRECT_URI)}" +
-            "&response_type=code" +
-            "&scope=${enc(DriveScopes.DRIVE_FILE)}" +
-            "&code_challenge=${enc(challenge)}" +
-            "&code_challenge_method=S256" +
-            "&access_type=offline" +
-            "&prompt=consent"
-        activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)))
-    }
-
-    /** Exchange an authorization code (from the redirect) for tokens. */
-    suspend fun handleOAuthCallback(code: String): Boolean = withContext(Dispatchers.IO) {
-        val verifier = credentialStore.getCodeVerifier() ?: return@withContext false
-        val body = formBody(
-            "client_id" to BuildConfig.DRIVE_CLIENT_ID,
-            "code" to code,
-            "code_verifier" to verifier,
-            "grant_type" to "authorization_code",
-            "redirect_uri" to REDIRECT_URI,
-        )
-        val json = postForm(TOKEN_ENDPOINT, body) ?: return@withContext false
-        val access = json.optString("access_token").ifBlank { null }
-        val refresh = json.optString("refresh_token").ifBlank { null }
-        val expires = json.optLong("expires_in", 3600)
-        if (access == null) return@withContext false
-        val email = fetchEmail(access)
-        credentialStore.saveTokens(access, refresh, expires, email)
-        true
-    }
-
     suspend fun signOut() = credentialStore.clear()
 
-    /** Return a non-expired access token, refreshing if necessary. */
-    private suspend fun freshAccessToken(): String? {
-        val current = credentialStore.getAccessToken()
-        val expiry = credentialStore.getExpiryEpochMs()
-        if (current != null && System.currentTimeMillis() < expiry - 60_000) return current
-        val refresh = credentialStore.getRefreshToken() ?: return current
-        val body = formBody(
-            "client_id" to BuildConfig.DRIVE_CLIENT_ID,
-            "refresh_token" to refresh,
-            "grant_type" to "refresh_token",
-        )
-        val json = postForm(TOKEN_ENDPOINT, body) ?: return current
-        val access = json.optString("access_token").ifBlank { null } ?: return current
-        val expires = json.optLong("expires_in", 3600)
-        credentialStore.saveTokens(access, null, expires, null)
-        return access
-    }
-
-    private fun fetchEmail(accessToken: String): String? = runCatching {
-        val conn = (URL("https://www.googleapis.com/oauth2/v3/userinfo").openConnection() as HttpURLConnection)
-        conn.setRequestProperty("Authorization", "Bearer $accessToken")
-        conn.inputStream.bufferedReader().use { JSONObject(it.readText()).optString("email") }
-    }.getOrNull()
-
-    private fun postForm(endpoint: String, body: String): JSONObject? = runCatching {
-        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            doOutput = true
-            setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+    /** Get a non-expired access token, letting AppAuth refresh if needed, and persist any update. */
+    private suspend fun freshAccessToken(authState: AuthState): String? {
+        val service = AuthorizationService(context)
+        return try {
+            val token = suspendCancellableCoroutine { cont ->
+                authState.performActionWithFreshTokens(service) { accessToken, _, _ ->
+                    cont.resume(accessToken)
+                }
+            }
+            credentialStore.saveAuthState(authState) // may have refreshed
+            token
+        } catch (e: Exception) {
+            null
+        } finally {
+            service.dispose()
         }
-        conn.outputStream.use { it.write(body.toByteArray()) }
-        val code = conn.responseCode
-        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val text = stream?.bufferedReader()?.use { it.readText() } ?: return null
-        if (code in 200..299) JSONObject(text) else null
-    }.getOrNull()
-
-    private fun formBody(vararg pairs: Pair<String, String>): String =
-        pairs.joinToString("&") { (k, v) -> "${enc(k)}=${enc(v)}" }
-
-    private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
-
-    private fun generateCodeVerifier(): String {
-        val bytes = ByteArray(64)
-        SecureRandom().nextBytes(bytes)
-        return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
     }
 
-    private fun codeChallenge(verifier: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray())
-        return Base64.encodeToString(digest, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
-    }
-
-    companion object {
-        const val REDIRECT_URI = "com.fieldnotes.app:/oauth2callback"
-        private const val TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+    /** Pull the account email from the id_token (requires the "email"/"openid" scopes). */
+    private fun extractEmail(tokenResponse: TokenResponse): String? {
+        val idToken = tokenResponse.idToken ?: return null
+        val parts = idToken.split(".")
+        if (parts.size < 2) return null
+        return runCatching {
+            val payload = String(Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING))
+            JSONObject(payload).optString("email").ifBlank { null }
+        }.getOrNull()
     }
 }

@@ -52,8 +52,13 @@ These were required because the spec versions/APIs do not build as written:
    so `stop()` returned an invalid path. Fixed to carry the real PCM file.
 7. **`SyncWorker` status update** keyed recordings by `file.nameWithoutExtension` (never matches the
    UUID primary key). Changed to update by `filePath`.
-8. **OAuth now uses PKCE** (`code_challenge`/`code_verifier`). Google requires PKCE for custom-scheme
-   installed-app flows; the spec's plain code exchange would be rejected.
+8. **Drive OAuth uses AppAuth** (`net.openid:appauth`), not the spec's hand-rolled flow. The original
+   manual `HttpURLConnection` flow used the redirect `com.fieldnotes.app:/oauth2callback`, which Google
+   rejects for a native client. AppAuth handles Custom Tabs + PKCE + token exchange/refresh and uses
+   Google's **reverse-client-ID** redirect scheme (`com.googleusercontent.apps.<id>:/oauth2redirect`),
+   derived from `drive.client.id` at build time and injected as the `appAuthRedirectScheme` manifest
+   placeholder + `BuildConfig.DRIVE_REDIRECT_SCHEME`. Tokens are persisted as an AppAuth `AuthState`.
+   The Google Cloud client must be type **Android** (package name + debug/release SHA-1).
 9. **Glance widget** uses clickable `Box`/`Text` instead of `Button(colors=…)` for cross-version
    stability of the Glance API.
 10. **Encoder**: the spec left the FLAC `MediaCodec` loop and Whisper decode loop as `…`. Both are

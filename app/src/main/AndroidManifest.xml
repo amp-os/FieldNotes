@@ -37,21 +37,9 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
-        <!-- OAuth redirect target (07_DRIVE_SYNC_MODULE.md) -->
-        <activity
-            android:name=".OAuthCallbackActivity"
-            android:exported="true"
-            android:launchMode="singleTask"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="com.fieldnotes.app"
-                    android:host="oauth2callback" />
-            </intent-filter>
-        </activity>
+        <!-- OAuth redirect is handled by AppAuth's RedirectUriReceiverActivity, declared by the
+             AppAuth library and bound to our scheme via the ${appAuthRedirectScheme} manifest
+             placeholder (set in app/build.gradle.kts). No custom callback activity is needed. -->
 
         <!-- Glance widget (09_WIDGET_MODULE.md) -->
         <receiver

@@ -4,9 +4,8 @@
 
 package com.fieldnotes.app.ui.settings
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,7 +52,9 @@ fun SettingsScreen(
     val pending by viewModel.pendingUploads.collectAsStateWithLifecycle()
     val storageUsed by viewModel.storageUsed.collectAsStateWithLifecycle()
     val modelProgress by viewModel.modelProgress.collectAsStateWithLifecycle()
-    val activity = LocalContext.current.findActivity()
+    val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        viewModel.onAuthResult(result.data)
+    }
 
     Column(
         modifier
@@ -71,7 +71,9 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else if (email == null) {
-            Button(onClick = { activity?.let(viewModel::connectDrive) }) { Text("Connect Google Drive") }
+            Button(onClick = { viewModel.buildAuthIntent()?.let(authLauncher::launch) }) {
+                Text("Connect Google Drive")
+            }
         } else {
             Text("Connected: $email")
             OutlinedButton(onClick = viewModel::signOut) { Text("Disconnect") }
@@ -156,10 +158,4 @@ private fun formatSize(bytes: Long): String = when {
     bytes >= 1_000_000 -> "%.0f MB".format(bytes / 1_000_000.0)
     bytes >= 1_000 -> "%.0f KB".format(bytes / 1_000.0)
     else -> "$bytes B"
-}
-
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }

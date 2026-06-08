@@ -23,6 +23,7 @@ coroutines = "1.8.1"
 google-api-client = "2.5.0"
 google-drive = "v3-rev20240521-2.0.0"
 google-auth = "1.23.0"
+appauth = "0.11.1"
 navigation = "2.8.4"
 lifecycle = "2.8.7"
 datastore = "1.1.1"
@@ -82,6 +83,9 @@ glance-material3 = { module = "androidx.glance:glance-material3", version.ref = 
 google-api-client-android = { module = "com.google.api-client:google-api-client-android", version.ref = "google-api-client" }
 google-drive-api = { module = "com.google.apis:google-api-services-drive", version.ref = "google-drive" }
 google-auth-oauth2 = { module = "com.google.auth:google-auth-library-oauth2-http", version.ref = "google-auth" }
+
+# OAuth (AppAuth — RFC 8252 native-app flow)
+appauth = { module = "net.openid:appauth", version.ref = "appauth" }
 
 # JSON / DataStore
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
