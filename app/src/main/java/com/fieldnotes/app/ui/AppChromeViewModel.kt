@@ -20,13 +20,15 @@ class AppChromeViewModel @Inject constructor(
 
     data class BannerJob(val recordingId: String, val done: Boolean)
 
-    /** The transcription to advertise in the banner: still running, or finished but not yet saved. */
+    /**
+     * The transcription to advertise in the banner: still running, or finished but not yet saved.
+     * Saved jobs are removed from the map, so they don't appear here.
+     */
     val backgroundTranscription: StateFlow<BannerJob?> = manager.jobs
         .map { jobs ->
             jobs.values.firstOrNull {
-                it.savedAs == null &&
-                    (it.status == TranscriptionManager.Status.RUNNING ||
-                        it.status == TranscriptionManager.Status.DONE)
+                it.status == TranscriptionManager.Status.RUNNING ||
+                    it.status == TranscriptionManager.Status.DONE
             }?.let { BannerJob(it.recordingId, it.status == TranscriptionManager.Status.DONE) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

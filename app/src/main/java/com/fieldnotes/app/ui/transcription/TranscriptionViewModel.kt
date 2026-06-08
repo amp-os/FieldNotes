@@ -140,13 +140,11 @@ class TranscriptionViewModel @Inject constructor(
             }
             manager.start(recordingId)
         }
-        // A manual save completes asynchronously in the manager; close the screen when it lands.
+        // A save (manual, or an armed auto-save we returned to watch) completes asynchronously in the
+        // manager; close the screen when this recording's note lands.
         viewModelScope.launch {
-            manager.jobs.collect { jobs ->
-                if (jobs[recordingId]?.savedAs != null) {
-                    manager.clear(recordingId)
-                    _navigateSaved.emit(Unit)
-                }
+            manager.saved.collect { savedId ->
+                if (savedId == recordingId) _navigateSaved.emit(Unit)
             }
         }
     }

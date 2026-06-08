@@ -12,8 +12,11 @@ import com.fieldnotes.app.data.repository.TranscriptionRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -37,8 +40,6 @@ class TranscriptionManager @Inject constructor(
         val status: Status,
         val text: String = "",
         val error: String? = null,
-        /** Filename of the note the result was appended to, once saved (auto or manual). */
-        val savedAs: String? = null,
     )
 
     private data class AutoSave(
@@ -49,6 +50,11 @@ class TranscriptionManager @Inject constructor(
 
     private val _jobs = MutableStateFlow<Map<String, Job>>(emptyMap())
     val jobs: StateFlow<Map<String, Job>> = _jobs.asStateFlow()
+
+    // One-shot signal that a recording's note was saved (auto or manual). The job is removed from
+    // the map at the same time, so a screen can't infer "saved" from the map — it listens here.
+    private val _saved = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val saved: SharedFlow<String> = _saved.asSharedFlow()
 
     private val armed = HashMap<String, AutoSave>()
     private val armLock = Mutex()
@@ -93,7 +99,7 @@ class TranscriptionManager @Inject constructor(
         }
     }
 
-    /** Save edited text now (transcription already finished); result surfaces via [Job.savedAs]. */
+    /** Save edited text now (transcription already finished); completion surfaces via [saved]. */
     fun saveNow(
         recordingId: String,
         filename: String,
@@ -101,10 +107,10 @@ class TranscriptionManager @Inject constructor(
         labels: List<String>,
         destination: NoteDestination,
     ) {
-        scope.launch { persist(recordingId, filename, text, labels, destination, clearAfter = false) }
+        scope.launch { persist(recordingId, filename, text, labels, destination) }
     }
 
-    /** Forget a job once its saved/terminal state has been consumed by the UI. */
+    /** Forget a job (e.g. the user discarded it). */
     fun clear(recordingId: String) {
         _jobs.update { it - recordingId }
         scope.launch { armLock.withLock { armed.remove(recordingId) } }
@@ -112,8 +118,7 @@ class TranscriptionManager @Inject constructor(
 
     private suspend fun runAutoSaveIfArmed(recordingId: String, text: String) {
         val request = armLock.withLock { armed.remove(recordingId) } ?: return
-        // The user armed this and left the screen, so nobody is watching: drop the job once saved.
-        persist(recordingId, request.filename, text, request.labels, request.destination, clearAfter = true)
+        persist(recordingId, request.filename, text, request.labels, request.destination)
     }
 
     private suspend fun persist(
@@ -122,22 +127,16 @@ class TranscriptionManager @Inject constructor(
         text: String,
         labels: List<String>,
         destination: NoteDestination,
-        clearAfter: Boolean,
     ) {
         runCatching {
             val savedName = noteRepository.saveTranscription(filename, text, labels, destination)
             recordingRepository.setNoteFilename(recordingId, savedName)
             if (labels.isNotEmpty()) recordingRepository.updateLabels(recordingId, labels)
             savedName
-        }.onSuccess { savedName ->
-            if (clearAfter) {
-                clear(recordingId)
-            } else {
-                _jobs.update { jobs ->
-                    val current = jobs[recordingId] ?: Job(recordingId, Status.DONE, text = text)
-                    jobs + (recordingId to current.copy(savedAs = savedName))
-                }
-            }
+        }.onSuccess {
+            // Remove the job and fire the one-shot saved event for any screen still watching this id.
+            clear(recordingId)
+            _saved.tryEmit(recordingId)
         }.onFailure { e ->
             _jobs.update { jobs ->
                 val current = jobs[recordingId] ?: Job(recordingId, Status.DONE, text = text)
