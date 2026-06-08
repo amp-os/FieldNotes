@@ -27,6 +27,9 @@ class WhisperEngine @Inject constructor(
     private var contextPtr: Long = 0L
     private var loadedModel: String? = null
     private val initMutex = Mutex()
+    // whisper_context is single-threaded and there is only one shared context, so a second
+    // transcription started while one is in progress must wait rather than race on it.
+    private val transcribeMutex = Mutex()
 
     private external fun initContext(modelPath: String): Long
     private external fun transcribeAudio(ctxPtr: Long, audioData: FloatArray, numSamples: Int): String
@@ -55,16 +58,20 @@ class WhisperEngine @Inject constructor(
         audioFile: File,
         modelName: String = WhisperModelManager.BASE_MODEL,
     ): TranscriptionResult = withContext(Dispatchers.Default) {
-        ensureInitialised(modelName)
-        val t0 = System.currentTimeMillis()
-        val pcm = decodeToFloat32Pcm(audioFile)
-        Log.i(TAG, "decode: ${System.currentTimeMillis() - t0}ms → ${pcm.size} samples (${pcm.size / 16000f}s)")
-        val text = transcribeAudio(contextPtr, pcm, pcm.size)
-        TranscriptionResult(
-            text = text.trim(),
-            audioFile = audioFile,
-            processedAt = System.currentTimeMillis(),
-        )
+        // Serialise the whole run (model load + inference) on the shared native context so concurrent
+        // transcriptions queue instead of corrupting each other.
+        transcribeMutex.withLock {
+            ensureInitialised(modelName)
+            val t0 = System.currentTimeMillis()
+            val pcm = decodeToFloat32Pcm(audioFile)
+            Log.i(TAG, "decode: ${System.currentTimeMillis() - t0}ms → ${pcm.size} samples (${pcm.size / 16000f}s)")
+            val text = transcribeAudio(contextPtr, pcm, pcm.size)
+            TranscriptionResult(
+                text = text.trim(),
+                audioFile = audioFile,
+                processedAt = System.currentTimeMillis(),
+            )
+        }
     }
 
     fun release() {
