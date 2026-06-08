@@ -34,6 +34,12 @@ class SettingsRepository @Inject constructor(
     val selectedModel: Flow<String> = store.data.map { it[KEY_MODEL] ?: WhisperModelManager.BASE_MODEL }
     val audioSourceFlow: Flow<Int> = store.data.map { it[KEY_AUDIO_SOURCE] ?: AudioSource.MIC }
 
+    /** Persisted SAF tree URI for the on-device notes folder, or null if none chosen (issue 5). */
+    val localNotesFolderUri: Flow<String?> = store.data.map { it[KEY_LOCAL_NOTES_URI] }
+
+    /** When true (and a folder is set), new notes default to the local folder instead of Drive. */
+    val preferLocalNotes: Flow<Boolean> = store.data.map { it[KEY_PREFER_LOCAL_NOTES] ?: false }
+
     /**
      * A just-finished recording awaiting its post-stop screen. The route is chosen at stop time
      * (transcription or detail, issue 6), independent of the recording mode. Persisted so a capture
@@ -65,6 +71,12 @@ class SettingsRepository @Inject constructor(
     suspend fun setSelectedModel(model: String) = store.edit { it[KEY_MODEL] = model }
     suspend fun setAudioSource(source: Int) = store.edit { it[KEY_AUDIO_SOURCE] = source }
 
+    suspend fun setLocalNotesFolderUri(uri: String?) = store.edit {
+        if (uri == null) it.remove(KEY_LOCAL_NOTES_URI) else it[KEY_LOCAL_NOTES_URI] = uri
+    }
+
+    suspend fun setPreferLocalNotes(value: Boolean) = store.edit { it[KEY_PREFER_LOCAL_NOTES] = value }
+
     suspend fun setPendingCompletion(rec: CompletedRecording) =
         store.edit { it[KEY_PENDING_COMPLETION] = "${rec.mode.name}|${rec.transcribe}|${rec.recordingId}" }
 
@@ -79,5 +91,7 @@ class SettingsRepository @Inject constructor(
         private val KEY_MODEL = stringPreferencesKey("whisper_model")
         private val KEY_AUDIO_SOURCE = intPreferencesKey("audio_source")
         private val KEY_PENDING_COMPLETION = stringPreferencesKey("pending_completion")
+        private val KEY_LOCAL_NOTES_URI = stringPreferencesKey("local_notes_uri")
+        private val KEY_PREFER_LOCAL_NOTES = booleanPreferencesKey("prefer_local_notes")
     }
 }

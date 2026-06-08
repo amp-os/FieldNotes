@@ -23,6 +23,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.fieldnotes.app.data.repository.NoteDestination
 import com.fieldnotes.app.ui.common.FieldRed
 import com.fieldnotes.app.ui.common.LabelEditor
 
@@ -146,7 +148,25 @@ private fun Content(
         }
 
         Spacer(Modifier.height(16.dp))
-        Text("Save to note:")
+        if (state.localFolderConfigured) {
+            // Reset the chosen note when switching destinations — the note lists differ (issue 5).
+            LaunchedEffect(state.destination) { selectedNote = null; newFilename = "" }
+            Text("Save to:")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = state.destination == NoteDestination.DRIVE,
+                    onClick = { viewModel.setDestination(NoteDestination.DRIVE) },
+                    label = { Text("Google Drive") },
+                )
+                FilterChip(
+                    selected = state.destination == NoteDestination.LOCAL_FOLDER,
+                    onClick = { viewModel.setDestination(NoteDestination.LOCAL_FOLDER) },
+                    label = { Text(state.localFolderName ?: "Local folder") },
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        Text("Note:")
         Box {
             OutlinedButton(onClick = { dropdownExpanded = true }, modifier = Modifier.fillMaxWidth()) {
                 Text(selectedNote ?: "Select existing note", modifier = Modifier.weight(1f))

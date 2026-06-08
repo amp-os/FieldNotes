@@ -156,6 +156,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.datastore.preferences)
     implementation(libs.accompanist.permissions)
+    implementation("androidx.documentfile:documentfile:1.0.1") // SAF local-notes folder (issue 5)
 
     // Unit tests (JUnit 5 + MockK + Robolectric + Truth)
     testImplementation(libs.junit.jupiter)

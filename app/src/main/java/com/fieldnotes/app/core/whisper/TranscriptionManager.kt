@@ -5,6 +5,7 @@
 // transcription is done, no need to wait".
 package com.fieldnotes.app.core.whisper
 
+import com.fieldnotes.app.data.repository.NoteDestination
 import com.fieldnotes.app.data.repository.NoteRepository
 import com.fieldnotes.app.data.repository.RecordingRepository
 import com.fieldnotes.app.data.repository.TranscriptionRepository
@@ -40,7 +41,11 @@ class TranscriptionManager @Inject constructor(
         val savedAs: String? = null,
     )
 
-    private data class AutoSave(val filename: String, val labels: List<String>)
+    private data class AutoSave(
+        val filename: String,
+        val labels: List<String>,
+        val destination: NoteDestination,
+    )
 
     private val _jobs = MutableStateFlow<Map<String, Job>>(emptyMap())
     val jobs: StateFlow<Map<String, Job>> = _jobs.asStateFlow()
@@ -75,17 +80,28 @@ class TranscriptionManager @Inject constructor(
      * Append the result to [filename] as soon as it is ready (or immediately if already done),
      * using the raw transcription text. The user need not wait on the screen.
      */
-    fun armAutoSave(recordingId: String, filename: String, labels: List<String>) {
+    fun armAutoSave(
+        recordingId: String,
+        filename: String,
+        labels: List<String>,
+        destination: NoteDestination,
+    ) {
         scope.launch {
-            armLock.withLock { armed[recordingId] = AutoSave(filename, labels) }
+            armLock.withLock { armed[recordingId] = AutoSave(filename, labels, destination) }
             val job = _jobs.value[recordingId]
             if (job?.status == Status.DONE) runAutoSaveIfArmed(recordingId, job.text)
         }
     }
 
     /** Save edited text now (transcription already finished); result surfaces via [Job.savedAs]. */
-    fun saveNow(recordingId: String, filename: String, text: String, labels: List<String>) {
-        scope.launch { persist(recordingId, filename, text, labels, clearAfter = false) }
+    fun saveNow(
+        recordingId: String,
+        filename: String,
+        text: String,
+        labels: List<String>,
+        destination: NoteDestination,
+    ) {
+        scope.launch { persist(recordingId, filename, text, labels, destination, clearAfter = false) }
     }
 
     /** Forget a job once its saved/terminal state has been consumed by the UI. */
@@ -97,7 +113,7 @@ class TranscriptionManager @Inject constructor(
     private suspend fun runAutoSaveIfArmed(recordingId: String, text: String) {
         val request = armLock.withLock { armed.remove(recordingId) } ?: return
         // The user armed this and left the screen, so nobody is watching: drop the job once saved.
-        persist(recordingId, request.filename, text, request.labels, clearAfter = true)
+        persist(recordingId, request.filename, text, request.labels, request.destination, clearAfter = true)
     }
 
     private suspend fun persist(
@@ -105,10 +121,11 @@ class TranscriptionManager @Inject constructor(
         filename: String,
         text: String,
         labels: List<String>,
+        destination: NoteDestination,
         clearAfter: Boolean,
     ) {
         runCatching {
-            val savedName = noteRepository.saveTranscription(filename, text, labels)
+            val savedName = noteRepository.saveTranscription(filename, text, labels, destination)
             recordingRepository.setNoteFilename(recordingId, savedName)
             if (labels.isNotEmpty()) recordingRepository.updateLabels(recordingId, labels)
             savedName

@@ -2,7 +2,10 @@
 // Authored by: ui module | Implements: 08_UI_MODULE.md / 07_DRIVE_SYNC_MODULE.md / 05_WHISPER_MODULE.md
 package com.fieldnotes.app.ui.settings
 
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fieldnotes.app.core.storage.LocalFileManager
@@ -13,6 +16,7 @@ import com.fieldnotes.app.core.whisper.WhisperModelManager
 import com.fieldnotes.app.data.db.SyncQueueDao
 import com.fieldnotes.app.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -36,6 +41,7 @@ data class ModelUiState(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
     private val driveAuthManager: DriveAuthManager,
     private val syncScheduler: SyncScheduler,
@@ -51,6 +57,46 @@ class SettingsViewModel @Inject constructor(
     val pendingUploads = syncQueueDao.pendingCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     val isDriveConfigured: Boolean get() = driveAuthManager.isConfigured
+
+    /** On-device notes folder (issue 5): display name (null if unset) and default-here preference. */
+    val localNotesFolderName: StateFlow<String?> = settingsRepository.localNotesFolderUri
+        .map { uri -> uri?.let { folderDisplayName(it) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val preferLocalNotes: StateFlow<Boolean> = settingsRepository.preferLocalNotes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun setLocalNotesFolder(uri: Uri) = viewModelScope.launch {
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }
+        settingsRepository.setLocalNotesFolderUri(uri.toString())
+    }
+
+    fun clearLocalNotesFolder() = viewModelScope.launch {
+        settingsRepository.localNotesFolderUri.first()?.let { existing ->
+            runCatching {
+                context.contentResolver.releasePersistableUriPermission(
+                    Uri.parse(existing),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }
+        }
+        settingsRepository.setLocalNotesFolderUri(null)
+        settingsRepository.setPreferLocalNotes(false)
+    }
+
+    fun setPreferLocalNotes(value: Boolean) = viewModelScope.launch {
+        settingsRepository.setPreferLocalNotes(value)
+    }
+
+    private fun folderDisplayName(uri: String): String =
+        runCatching { DocumentFile.fromTreeUri(context, Uri.parse(uri))?.name }.getOrNull()
+            ?: Uri.parse(uri).lastPathSegment
+            ?: uri
 
     private val _storageUsed = MutableStateFlow(0L)
     val storageUsed: StateFlow<Long> = _storageUsed.asStateFlow()

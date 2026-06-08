@@ -55,8 +55,13 @@ fun SettingsScreen(
     val email by viewModel.connectedEmail.collectAsStateWithLifecycle()
     val pending by viewModel.pendingUploads.collectAsStateWithLifecycle()
     val storageUsed by viewModel.storageUsed.collectAsStateWithLifecycle()
+    val localFolderName by viewModel.localNotesFolderName.collectAsStateWithLifecycle()
+    val preferLocal by viewModel.preferLocalNotes.collectAsStateWithLifecycle()
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         viewModel.onAuthResult(result.data)
+    }
+    val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let(viewModel::setLocalNotesFolder)
     }
 
     Column(
@@ -109,6 +114,27 @@ fun SettingsScreen(
                 onDownload = { viewModel.downloadModel(row.model.fileName) },
                 onDelete = { viewModel.deleteModel(row.model.fileName) },
             )
+        }
+
+        HorizontalDivider()
+        SectionTitle("Notes")
+        if (localFolderName == null) {
+            Text(
+                "Optionally save notes to a folder on this device instead of Google Drive. " +
+                    "The audio still uploads to Drive.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(onClick = { folderLauncher.launch(null) }) { Text("Choose local notes folder") }
+        } else {
+            Text("Local folder: ${localFolderName}")
+            SettingRow("Save new notes here by default") {
+                Switch(checked = preferLocal, onCheckedChange = viewModel::setPreferLocalNotes)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { folderLauncher.launch(null) }) { Text("Change") }
+                OutlinedButton(onClick = viewModel::clearLocalNotesFolder) { Text("Remove") }
+            }
         }
 
         HorizontalDivider()

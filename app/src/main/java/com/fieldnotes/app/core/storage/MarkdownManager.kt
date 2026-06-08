@@ -32,6 +32,23 @@ class MarkdownManager @Inject constructor(
         labels: List<String> = emptyList(),
     ): File = withContext(Dispatchers.IO) {
         val file = localFileManager.noteFile(filename)
+        val existing = if (file.exists()) file.readText() else null
+        file.writeText(renderPrepended(existing, file.name, transcriptionText, timestamp, labels))
+        file
+    }
+
+    /**
+     * Pure content transform: given a note's [existing] content (or null to create), return the new
+     * content with [transcriptionText] prepended as a fresh entry below the H1 title. Shared by the
+     * File-backed [prependEntry] and the SAF-backed local-folder writer so both behave identically.
+     */
+    fun renderPrepended(
+        existing: String?,
+        filename: String,
+        transcriptionText: String,
+        timestamp: Long,
+        labels: List<String>,
+    ): String {
         val newEntry = buildString {
             appendLine("## ${formatDateHeading(timestamp)}")
             appendLine()
@@ -46,22 +63,19 @@ class MarkdownManager @Inject constructor(
             appendLine()
         }
 
-        if (!file.exists()) {
-            val title = file.name.removeSuffix(".md").replaceFirstChar { it.uppercase() }
-            file.writeText("# $title\n\n$newEntry")
-        } else {
-            val existing = file.readText()
-            val insertionPoint = if (existing.startsWith("# ")) {
-                val firstNewline = existing.indexOf('\n')
-                if (firstNewline >= 0) firstNewline + 1 else existing.length
-            } else {
-                0
-            }
-            val before = existing.substring(0, insertionPoint)
-            val after = existing.substring(insertionPoint).trimStart('\n')
-            file.writeText("$before\n$newEntry$after")
+        if (existing == null) {
+            val title = filename.removeSuffix(".md").replaceFirstChar { it.uppercase() }
+            return "# $title\n\n$newEntry"
         }
-        file
+        val insertionPoint = if (existing.startsWith("# ")) {
+            val firstNewline = existing.indexOf('\n')
+            if (firstNewline >= 0) firstNewline + 1 else existing.length
+        } else {
+            0
+        }
+        val before = existing.substring(0, insertionPoint)
+        val after = existing.substring(insertionPoint).trimStart('\n')
+        return "$before\n$newEntry$after"
     }
 
     /** Read a note's content, or null if it does not exist. */
