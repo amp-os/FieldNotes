@@ -68,7 +68,11 @@ android {
                     "-DGGML_FMA=OFF",
                     "-DGGML_F16C=OFF",
                     "-DWHISPER_BUILD_TESTS=OFF",
-                    "-DWHISPER_BUILD_EXAMPLES=OFF"
+                    "-DWHISPER_BUILD_EXAMPLES=OFF",
+                    // Align every native lib (incl. whisper.cpp's ggml libs) to 16KB pages. The
+                    // Pixel 8 / Android 16 kernel uses 16KB pages; a 4KB-aligned libggml-cpu.so
+                    // runs in compat mode and SIGSEGVs inside ggml_compute_forward_mul_mat.
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
                 )
             }
         }

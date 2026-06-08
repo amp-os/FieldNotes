@@ -10,6 +10,12 @@ set(WHISPER_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
 
+# Align ELF PT_LOAD segments to 16KB pages for ALL targets below, including whisper.cpp's own
+# ggml/whisper shared libs. Must precede add_subdirectory so the subproject inherits it. On the
+# Pixel 8 / Android 16 (16KB-page kernel) a 4KB-aligned libggml-cpu.so SIGSEGVs in mul_mat.
+# (Belt-and-suspenders alongside -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON in build.gradle.kts.)
+add_link_options("-Wl,-z,max-page-size=16384")
+
 add_subdirectory(whisper.cpp)
 
 add_library(
@@ -26,8 +32,3 @@ target_link_libraries(
     android
     log
 )
-
-# Align ELF PT_LOAD segments to 16KB for kernels with 16KB page size (e.g. Pixel 8).
-# Without this the dynamic linker uses compatibility mode, degrading memory throughput
-# for whisper.cpp's matrix operations.
-target_link_options(fieldnotes-jni PRIVATE "-Wl,-z,max-page-size=16384")
