@@ -35,16 +35,24 @@ class SettingsRepository @Inject constructor(
     val audioSourceFlow: Flow<Int> = store.data.map { it[KEY_AUDIO_SOURCE] ?: AudioSource.MIC }
 
     /**
-     * A just-finished recording awaiting its post-stop screen (transcription for voice, detail for
-     * field). Persisted so a capture started from the widget/QS tile is still routed when the app
-     * next becomes visible. Encoded as "MODE|id".
+     * A just-finished recording awaiting its post-stop screen. The route is chosen at stop time
+     * (transcription or detail, issue 6), independent of the recording mode. Persisted so a capture
+     * started from the widget/QS tile is still routed when the app next becomes visible. Encoded as
+     * "MODE|transcribe|id" (older "MODE|id" values are still read).
      */
     val pendingCompletion: Flow<CompletedRecording?> = store.data.map { prefs ->
         prefs[KEY_PENDING_COMPLETION]?.let { encoded ->
-            val mode = encoded.substringBefore('|', "")
-            val id = encoded.substringAfter('|', "")
-            if (id.isBlank()) null
-            else runCatching { CompletedRecording(id, RecordingMode.valueOf(mode)) }.getOrNull()
+            val parts = encoded.split('|')
+            runCatching {
+                when (parts.size) {
+                    3 -> CompletedRecording(parts[2], RecordingMode.valueOf(parts[0]), parts[1].toBoolean())
+                    2 -> {
+                        val mode = RecordingMode.valueOf(parts[0])
+                        CompletedRecording(parts[1], mode, mode == RecordingMode.VOICE_NOTE)
+                    }
+                    else -> null
+                }
+            }.getOrNull()?.takeIf { it.recordingId.isNotBlank() }
         }
     }
 
@@ -58,7 +66,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setAudioSource(source: Int) = store.edit { it[KEY_AUDIO_SOURCE] = source }
 
     suspend fun setPendingCompletion(rec: CompletedRecording) =
-        store.edit { it[KEY_PENDING_COMPLETION] = "${rec.mode.name}|${rec.recordingId}" }
+        store.edit { it[KEY_PENDING_COMPLETION] = "${rec.mode.name}|${rec.transcribe}|${rec.recordingId}" }
 
     suspend fun clearPendingCompletion() = store.edit { it.remove(KEY_PENDING_COMPLETION) }
 

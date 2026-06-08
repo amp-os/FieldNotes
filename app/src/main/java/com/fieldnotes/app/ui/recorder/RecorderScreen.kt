@@ -23,6 +23,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -73,10 +74,9 @@ fun RecorderScreen(
     LaunchedEffect(pendingCompletion) {
         val pending = pendingCompletion ?: return@LaunchedEffect
         viewModel.consumePendingCompletion()
-        when (pending.mode) {
-            RecordingMode.VOICE_NOTE -> onNavigateToTranscription(pending.recordingId)
-            RecordingMode.FIELD -> onNavigateToRecordingDetail(pending.recordingId)
-        }
+        // Route by the choice made at stop time (issue 6), not the recording mode.
+        if (pending.transcribe) onNavigateToTranscription(pending.recordingId)
+        else onNavigateToRecordingDetail(pending.recordingId)
     }
 
     val isRecording = session != null
@@ -119,14 +119,16 @@ fun RecorderScreen(
         Spacer(Modifier.weight(1f))
 
         if (isRecording) {
-            Button(
-                onClick = { viewModel.stop() },
-                modifier = Modifier.fillMaxWidth().height(96.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = FieldRed, contentColor = Color.White),
-            ) {
-                Text("STOP", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-            }
+            // Two stop paths (issue 6): the mode's default route is the larger button. A voice note
+            // defaults to transcription; a field recording defaults to a plain saved recording.
+            val voiceDefault = session?.mode == RecordingMode.VOICE_NOTE
+            StopButtons(
+                primaryLabel = if (voiceDefault) "STOP & TRANSCRIBE" else "STOP",
+                primaryTranscribe = voiceDefault,
+                secondaryLabel = if (voiceDefault) "Just save" else "Stop & transcribe",
+                secondaryTranscribe = !voiceDefault,
+                onStop = viewModel::stop,
+            )
         } else {
             Row(
                 modifier = Modifier.fillMaxWidth().height(160.dp),
@@ -155,6 +157,36 @@ fun RecorderScreen(
             }
         }
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun StopButtons(
+    primaryLabel: String,
+    primaryTranscribe: Boolean,
+    secondaryLabel: String,
+    secondaryTranscribe: Boolean,
+    onStop: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(96.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Button(
+            onClick = { onStop(primaryTranscribe) },
+            modifier = Modifier.weight(2f).fillMaxSize(),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = FieldRed, contentColor = Color.White),
+        ) {
+            Text(primaryLabel, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        }
+        OutlinedButton(
+            onClick = { onStop(secondaryTranscribe) },
+            modifier = Modifier.weight(1f).fillMaxSize(),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Text(secondaryLabel, fontSize = 13.sp)
+        }
     }
 }
 

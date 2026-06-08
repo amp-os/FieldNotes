@@ -88,8 +88,19 @@ class RecordingSessionManager @Inject constructor(
         }
     }
 
-    /** Stop the current recording, finalise it, persist metadata, and emit a completion event. */
-    suspend fun stop() {
+    /** The route a stop defaults to when the caller doesn't specify (e.g. the notification action). */
+    fun defaultTranscribeFor(mode: RecordingMode): Boolean = mode == RecordingMode.VOICE_NOTE
+
+    val currentMode: RecordingMode? get() = _session.value?.mode
+
+    /**
+     * Stop the current recording, finalise it, persist metadata, and emit a completion event.
+     *
+     * @param transcribe whether to route to the transcription screen afterwards. Decoupled from the
+     * recording mode (issue 6): a field recording can be transcribed and a voice note can be saved
+     * without transcription.
+     */
+    suspend fun stop(transcribe: Boolean) {
         val current = _session.value ?: return
         val durationMs = SystemClock.elapsedRealtime() - current.startElapsedRealtime
         amplitudeMirrorJob?.cancel(); amplitudeMirrorJob = null
@@ -105,7 +116,7 @@ class RecordingSessionManager @Inject constructor(
                     val (sampleRate, channels) = 48000 to 2
                     val output = audioEncoder.encodeField(pcm, sampleRate, channels, preferWav)
                     val id = recordingRepository.saveFieldRecording(output, durationMs, sampleRate)
-                    settingsRepository.setPendingCompletion(CompletedRecording(id, RecordingMode.FIELD))
+                    settingsRepository.setPendingCompletion(CompletedRecording(id, RecordingMode.FIELD, transcribe))
                 }
                 RecordingMode.VOICE_NOTE -> {
                     val recorder = voiceRecorder
@@ -116,7 +127,7 @@ class RecordingSessionManager @Inject constructor(
                     recorder?.release()
                     val file = current.voiceFile ?: error("voice file missing")
                     val id = recordingRepository.saveVoiceNote(file, durationMs)
-                    settingsRepository.setPendingCompletion(CompletedRecording(id, RecordingMode.VOICE_NOTE))
+                    settingsRepository.setPendingCompletion(CompletedRecording(id, RecordingMode.VOICE_NOTE, transcribe))
                 }
             }
         } catch (e: Exception) {
@@ -138,4 +149,6 @@ data class RecordingSession(
 data class CompletedRecording(
     val recordingId: String,
     val mode: RecordingMode,
+    /** Whether the user chose the transcription route when stopping (issue 6). */
+    val transcribe: Boolean,
 )

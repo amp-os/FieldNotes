@@ -48,7 +48,7 @@ class RecordingService : Service() {
         when (intent?.action) {
             ACTION_START_FIELD -> startRecording(RecordingMode.FIELD)
             ACTION_START_VOICE -> startRecording(RecordingMode.VOICE_NOTE)
-            ACTION_STOP -> stopRecording()
+            ACTION_STOP -> stopRecording(intent)
         }
         return START_STICKY
     }
@@ -92,10 +92,19 @@ class RecordingService : Service() {
         }
     }
 
-    private fun stopRecording() {
+    private fun stopRecording(intent: Intent) {
         tickerJob?.cancel()
+        // The route (transcribe or not) is chosen at stop time, independent of mode (issue 6).
+        // The notification's Stop action carries no choice, so fall back to the mode default.
+        val mode = sessionManager.currentMode
+        val default = mode?.let { sessionManager.defaultTranscribeFor(it) } ?: false
+        val transcribe = if (intent.hasExtra(EXTRA_TRANSCRIBE)) {
+            intent.getBooleanExtra(EXTRA_TRANSCRIBE, default)
+        } else {
+            default
+        }
         scope.launch {
-            sessionManager.stop()
+            sessionManager.stop(transcribe)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -160,6 +169,7 @@ class RecordingService : Service() {
         const val ACTION_START_FIELD = "com.fieldnotes.app.action.START_FIELD"
         const val ACTION_START_VOICE = "com.fieldnotes.app.action.START_VOICE"
         const val ACTION_STOP = "com.fieldnotes.app.action.STOP"
+        const val EXTRA_TRANSCRIBE = "com.fieldnotes.app.extra.TRANSCRIBE"
 
         private const val TAG = "RecordingService"
         private const val NOTIFICATION_ID = 1001
@@ -167,5 +177,12 @@ class RecordingService : Service() {
 
         fun startIntent(context: Context, action: String): Intent =
             Intent(context, RecordingService::class.java).apply { this.action = action }
+
+        /** Stop intent carrying the explicit transcribe-or-not choice from the in-app stop buttons. */
+        fun stopIntent(context: Context, transcribe: Boolean): Intent =
+            Intent(context, RecordingService::class.java).apply {
+                action = ACTION_STOP
+                putExtra(EXTRA_TRANSCRIBE, transcribe)
+            }
     }
 }

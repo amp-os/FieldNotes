@@ -55,7 +55,11 @@ class RecorderViewModel @Inject constructor(
 
     fun startField() = sendAction(RecordingService.ACTION_START_FIELD)
     fun startVoice() = sendAction(RecordingService.ACTION_START_VOICE)
-    fun stop() = sendAction(RecordingService.ACTION_STOP)
+
+    /** Stop, choosing whether to route to transcription afterwards (issue 6). */
+    fun stop(transcribe: Boolean) {
+        context.startForegroundService(RecordingService.stopIntent(context, transcribe))
+    }
 
     private fun sendAction(action: String) {
         context.startForegroundService(RecordingService.startIntent(context, action))
