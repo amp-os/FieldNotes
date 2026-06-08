@@ -48,6 +48,7 @@ import com.fieldnotes.app.core.sync.SyncStatus
 import com.fieldnotes.app.data.db.RecordingEntity
 import com.fieldnotes.app.data.db.labelList
 import com.fieldnotes.app.data.repository.RecordingRepository
+import com.fieldnotes.app.ui.common.AudioPlayer
 import com.fieldnotes.app.ui.common.FieldRed
 import com.fieldnotes.app.ui.common.SyncStatusIcon
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -134,6 +135,10 @@ fun RecordingDetailScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(File(rec.filePath).name, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
+            val audioFile = File(rec.filePath)
+            if (audioFile.exists()) {
+                AudioPlayer(audioFile)
+            }
             val isField = rec.mode == RecordingMode.FIELD.name
             InfoRow("Type", if (isField) "Field recording" else "Voice note")
             InfoRow("Recorded", formatDate(rec.createdAt))
