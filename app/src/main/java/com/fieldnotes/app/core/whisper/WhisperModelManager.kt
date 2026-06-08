@@ -91,8 +91,10 @@ class WhisperModelManager @Inject constructor(
     }.flowOn(Dispatchers.IO)
 
     companion object {
+        const val TINY_MODEL = "ggml-tiny.en.bin"
         const val BASE_MODEL = "ggml-base.en.bin"
         const val SMALL_MODEL = "ggml-small.en.bin"
+        const val TINY_MODEL_Q5 = "ggml-tiny.en-q5_1.bin"
         const val BASE_MODEL_Q5 = "ggml-base.en-q5_1.bin"
         const val SMALL_MODEL_Q5 = "ggml-small.en-q5_1.bin"
 
@@ -101,6 +103,8 @@ class WhisperModelManager @Inject constructor(
 
         /** All selectable models, fastest/smallest first. */
         val MODELS: List<WhisperModel> = listOf(
+            WhisperModel(TINY_MODEL_Q5, "Tiny · quantized", "31 MB", REPO + TINY_MODEL_Q5),
+            WhisperModel(TINY_MODEL, "Tiny", "75 MB", REPO + TINY_MODEL),
             WhisperModel(BASE_MODEL_Q5, "Base · quantized", "57 MB", REPO + BASE_MODEL_Q5),
             WhisperModel(BASE_MODEL, "Base", "142 MB", REPO + BASE_MODEL),
             WhisperModel(SMALL_MODEL_Q5, "Small · quantized", "182 MB", REPO + SMALL_MODEL_Q5),
