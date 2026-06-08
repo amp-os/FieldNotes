@@ -51,7 +51,10 @@ Java_com_fieldnotes_app_core_whisper_WhisperEngine_transcribeAudio(
     params.print_progress = false;
     params.print_timestamps = false;
     params.language = "en";
-    params.n_threads = 6; // 4 perf + 2 prime/efficiency; sweet spot on Pixel 8's 8-core layout
+    // 4 threads maps to the Tensor G3's four fast A715 cores. Going to 6 drags in the slow A510
+    // efficiency cores, and OpenMP's spin-wait barriers then stall the fast cores waiting on them —
+    // which made even the Tiny model no faster than Base (sync-bound, not compute-bound).
+    params.n_threads = 4;
     params.single_segment = false;
     params.token_timestamps = false;
 
