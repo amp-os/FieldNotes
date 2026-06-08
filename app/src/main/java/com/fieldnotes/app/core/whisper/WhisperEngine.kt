@@ -6,6 +6,7 @@ package com.fieldnotes.app.core.whisper
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.util.Log
 import com.fieldnotes.app.core.storage.LocalFileManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -24,6 +25,7 @@ class WhisperEngine @Inject constructor(
     private val modelManager: WhisperModelManager,
 ) {
     private var contextPtr: Long = 0L
+    private var loadedModel: String? = null
     private val initMutex = Mutex()
 
     private external fun initContext(modelPath: String): Long
@@ -33,18 +35,30 @@ class WhisperEngine @Inject constructor(
     /** True once the native model context is loaded. */
     val isReady: Boolean get() = contextPtr != 0L
 
-    suspend fun ensureInitialised() = initMutex.withLock {
-        if (contextPtr == 0L) {
-            val modelFile = modelManager.getModelFile()
-            contextPtr = initContext(modelFile.absolutePath)
-            check(contextPtr != 0L) { "Failed to load Whisper model (whisper.cpp not integrated or model invalid)" }
+    /**
+     * Load the given model, reloading if a different model was previously loaded. The selected
+     * model can change in Settings, so the engine must not assume the default base model.
+     */
+    suspend fun ensureInitialised(modelName: String = WhisperModelManager.BASE_MODEL) = initMutex.withLock {
+        if (contextPtr != 0L && loadedModel == modelName) return@withLock
+        if (contextPtr != 0L) {
+            freeContext(contextPtr); contextPtr = 0L; loadedModel = null
         }
+        val modelFile = modelManager.getModelFile(modelName)
+        contextPtr = initContext(modelFile.absolutePath)
+        check(contextPtr != 0L) { "Failed to load Whisper model (whisper.cpp not integrated or model invalid)" }
+        loadedModel = modelName
     }
 
     /** Transcribe an audio file. Decodes/resamples to 16kHz mono float32 then runs whisper. */
-    suspend fun transcribe(audioFile: File): TranscriptionResult = withContext(Dispatchers.Default) {
-        ensureInitialised()
+    suspend fun transcribe(
+        audioFile: File,
+        modelName: String = WhisperModelManager.BASE_MODEL,
+    ): TranscriptionResult = withContext(Dispatchers.Default) {
+        ensureInitialised(modelName)
+        val t0 = System.currentTimeMillis()
         val pcm = decodeToFloat32Pcm(audioFile)
+        Log.i(TAG, "decode: ${System.currentTimeMillis() - t0}ms → ${pcm.size} samples (${pcm.size / 16000f}s)")
         val text = transcribeAudio(contextPtr, pcm, pcm.size)
         TranscriptionResult(
             text = text.trim(),
@@ -57,6 +71,7 @@ class WhisperEngine @Inject constructor(
         if (contextPtr != 0L) {
             freeContext(contextPtr)
             contextPtr = 0L
+            loadedModel = null
         }
     }
 
@@ -155,6 +170,7 @@ class WhisperEngine @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "WhisperEngine"
         private const val TARGET_RATE = 16000
 
         init {

@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.fieldnotes.app.core.storage.LocalFileManager
 import com.fieldnotes.app.core.sync.DriveAuthManager
 import com.fieldnotes.app.core.sync.SyncScheduler
+import com.fieldnotes.app.core.whisper.WhisperModel
 import com.fieldnotes.app.core.whisper.WhisperModelManager
 import com.fieldnotes.app.data.db.SyncQueueDao
 import com.fieldnotes.app.data.repository.SettingsRepository
@@ -17,10 +18,21 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+
+/** UI state for a single whisper model row in Settings. */
+data class ModelUiState(
+    val model: WhisperModel,
+    val downloaded: Boolean,
+    val selected: Boolean,
+    val downloadProgress: Float?,
+)
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -43,10 +55,23 @@ class SettingsViewModel @Inject constructor(
     private val _storageUsed = MutableStateFlow(0L)
     val storageUsed: StateFlow<Long> = _storageUsed.asStateFlow()
 
-    private val _modelProgress = MutableStateFlow<Float?>(null)
-    val modelProgress: StateFlow<Float?> = _modelProgress.asStateFlow()
+    // Bumped after a download/delete so the (non-reactive) filesystem presence is re-read.
+    private val _modelRefresh = MutableStateFlow(0)
+    // fileName -> download fraction while a download is in flight.
+    private val _downloading = MutableStateFlow<Map<String, Float>>(emptyMap())
 
-    val baseModelDownloaded: Boolean get() = modelManager.isModelDownloaded(WhisperModelManager.BASE_MODEL)
+    /** One row per catalog model, reflecting downloaded/selected/in-progress state. */
+    val models: StateFlow<List<ModelUiState>> =
+        combine(selectedModel, _modelRefresh, _downloading) { selected, _, downloading ->
+            WhisperModelManager.MODELS.map { m ->
+                ModelUiState(
+                    model = m,
+                    downloaded = modelManager.isModelDownloaded(m.fileName),
+                    selected = m.fileName == selected,
+                    downloadProgress = downloading[m.fileName],
+                )
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init { refreshStorage() }
 
@@ -68,11 +93,27 @@ class SettingsViewModel @Inject constructor(
         localFileManager.cleanupTempFiles(); refreshStorage()
     }
 
-    fun downloadModel(model: String = WhisperModelManager.BASE_MODEL) = viewModelScope.launch {
-        val url = if (model == WhisperModelManager.SMALL_MODEL) WhisperModelManager.SMALL_MODEL_URL else WhisperModelManager.BASE_MODEL_URL
-        modelManager.downloadModel(model, url).collect { progress ->
-            _modelProgress.value = if (progress.complete) null else progress.fraction
+    fun downloadModel(fileName: String) = viewModelScope.launch {
+        modelManager.downloadModel(fileName).collect { progress ->
+            if (progress.complete) {
+                _downloading.update { it - fileName }
+                _modelRefresh.update { it + 1 }
+                refreshStorage()
+            } else {
+                _downloading.update { it + (fileName to progress.fraction) }
+            }
         }
+    }
+
+    fun deleteModel(fileName: String) = viewModelScope.launch(Dispatchers.IO) {
+        modelManager.deleteModel(fileName)
+        // If the deleted model was selected, fall back to the first remaining downloaded model.
+        if (settingsRepository.selectedModel.first() == fileName) {
+            WhisperModelManager.MODELS.firstOrNull { modelManager.isModelDownloaded(it.fileName) }
+                ?.let { settingsRepository.setSelectedModel(it.fileName) }
+        }
+        _modelRefresh.update { it + 1 }
+        refreshStorage()
     }
 
     private fun refreshStorage() = viewModelScope.launch {

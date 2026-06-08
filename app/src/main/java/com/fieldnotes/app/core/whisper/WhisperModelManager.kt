@@ -14,7 +14,18 @@ import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Manages whisper.cpp ggml model files: presence checks and first-run download. */
+/** A downloadable whisper.cpp ggml model. */
+data class WhisperModel(
+    val fileName: String,
+    val displayName: String,
+    val sizeLabel: String,
+    val url: String,
+) {
+    /** Quantized models (q5_1) are ~2-3x faster and use about half the RAM. */
+    val isQuantized: Boolean get() = fileName.contains("-q")
+}
+
+/** Manages whisper.cpp ggml model files: catalog, presence checks, download and deletion. */
 @Singleton
 class WhisperModelManager @Inject constructor(
     localFileManager: LocalFileManager,
@@ -32,10 +43,21 @@ class WhisperModelManager @Inject constructor(
     fun isModelDownloaded(modelName: String = BASE_MODEL): Boolean =
         File(modelDir, modelName).exists()
 
+    /** Size on disk of a downloaded model, or 0 if not present. */
+    fun modelSizeBytes(modelName: String): Long =
+        File(modelDir, modelName).let { if (it.exists()) it.length() else 0L }
+
+    /** Delete a downloaded model (and any stale .part file). Returns true if anything was removed. */
+    fun deleteModel(modelName: String): Boolean {
+        val removed = File(modelDir, modelName).delete()
+        File(modelDir, "$modelName.part").delete()
+        return removed
+    }
+
     /** Download a model, emitting progress. Writes to a .part file then renames on success. */
     fun downloadModel(
         modelName: String = BASE_MODEL,
-        url: String = BASE_MODEL_URL,
+        url: String = catalogUrl(modelName),
     ): Flow<DownloadProgress> = flow {
         modelDir.mkdirs()
         val dest = File(modelDir, modelName)
@@ -71,10 +93,28 @@ class WhisperModelManager @Inject constructor(
     companion object {
         const val BASE_MODEL = "ggml-base.en.bin"
         const val SMALL_MODEL = "ggml-small.en.bin"
-        const val BASE_MODEL_URL =
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
-        const val SMALL_MODEL_URL =
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
+        const val BASE_MODEL_Q5 = "ggml-base.en-q5_1.bin"
+        const val SMALL_MODEL_Q5 = "ggml-small.en-q5_1.bin"
+
+        private const val REPO =
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
+
+        /** All selectable models, fastest/smallest first. */
+        val MODELS: List<WhisperModel> = listOf(
+            WhisperModel(BASE_MODEL_Q5, "Base · quantized", "57 MB", REPO + BASE_MODEL_Q5),
+            WhisperModel(BASE_MODEL, "Base", "142 MB", REPO + BASE_MODEL),
+            WhisperModel(SMALL_MODEL_Q5, "Small · quantized", "182 MB", REPO + SMALL_MODEL_Q5),
+            WhisperModel(SMALL_MODEL, "Small", "466 MB", REPO + SMALL_MODEL),
+        )
+
+        fun modelFor(fileName: String): WhisperModel? = MODELS.find { it.fileName == fileName }
+
+        private fun catalogUrl(fileName: String): String =
+            modelFor(fileName)?.url ?: (REPO + fileName)
+
+        // Retained for backwards compatibility with older callers.
+        const val BASE_MODEL_URL = REPO + BASE_MODEL
+        const val SMALL_MODEL_URL = REPO + SMALL_MODEL
     }
 }
 

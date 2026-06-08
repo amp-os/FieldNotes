@@ -12,19 +12,24 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fieldnotes.app.data.repository.SettingsRepository
-import com.fieldnotes.app.core.whisper.WhisperModelManager
 
 @Composable
 fun SettingsScreen(
@@ -47,11 +51,10 @@ fun SettingsScreen(
 ) {
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
     val fieldFormat by viewModel.fieldFormat.collectAsStateWithLifecycle()
-    val selectedModel by viewModel.selectedModel.collectAsStateWithLifecycle()
+    val models by viewModel.models.collectAsStateWithLifecycle()
     val email by viewModel.connectedEmail.collectAsStateWithLifecycle()
     val pending by viewModel.pendingUploads.collectAsStateWithLifecycle()
     val storageUsed by viewModel.storageUsed.collectAsStateWithLifecycle()
-    val modelProgress by viewModel.modelProgress.collectAsStateWithLifecycle()
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         viewModel.onAuthResult(result.data)
     }
@@ -93,21 +96,19 @@ fun SettingsScreen(
                 onSelect = viewModel::setFieldFormat,
             )
         }
-        SettingRow("Transcription model") {
-            Dropdown(
-                current = if (selectedModel == WhisperModelManager.SMALL_MODEL) "Small (466MB)" else "Base (142MB)",
-                options = listOf("Base (142MB)", "Small (466MB)"),
-                onSelect = {
-                    viewModel.setModel(if (it.startsWith("Small")) WhisperModelManager.SMALL_MODEL else WhisperModelManager.BASE_MODEL)
-                },
+        Text("Transcription model", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "Quantized models are noticeably faster with near-identical accuracy.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        models.forEach { row ->
+            ModelRow(
+                row = row,
+                onSelect = { viewModel.setModel(row.model.fileName) },
+                onDownload = { viewModel.downloadModel(row.model.fileName) },
+                onDelete = { viewModel.deleteModel(row.model.fileName) },
             )
-        }
-        if (modelProgress != null) {
-            LinearProgressIndicator(progress = { modelProgress ?: 0f }, modifier = Modifier.fillMaxWidth())
-        } else {
-            OutlinedButton(onClick = { viewModel.downloadModel() }) {
-                Text(if (viewModel.baseModelDownloaded) "Re-download base model" else "Download base model")
-            }
         }
 
         HorizontalDivider()
@@ -118,6 +119,45 @@ fun SettingsScreen(
         HorizontalDivider()
         SectionTitle("About")
         Text("Version 1.0")
+    }
+}
+
+@Composable
+private fun ModelRow(
+    row: ModelUiState,
+    onSelect: () -> Unit,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(
+            selected = row.selected,
+            onClick = onSelect,
+            enabled = row.downloaded,
+        )
+        Column(Modifier.weight(1f)) {
+            Text(row.model.displayName, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                row.model.sizeLabel + if (row.downloaded) " · downloaded" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        when {
+            row.downloadProgress != null -> CircularProgressIndicator(
+                progress = { row.downloadProgress },
+                modifier = Modifier.size(24.dp),
+            )
+            row.downloaded -> IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete ${row.model.displayName}")
+            }
+            else -> IconButton(onClick = onDownload) {
+                Icon(Icons.Default.Download, contentDescription = "Download ${row.model.displayName}")
+            }
+        }
     }
 }
 

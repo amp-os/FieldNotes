@@ -26,3 +26,8 @@ target_link_libraries(
     android
     log
 )
+
+# Align ELF PT_LOAD segments to 16KB for kernels with 16KB page size (e.g. Pixel 8).
+# Without this the dynamic linker uses compatibility mode, degrading memory throughput
+# for whisper.cpp's matrix operations.
+target_link_options(fieldnotes-jni PRIVATE "-Wl,-z,max-page-size=16384")
