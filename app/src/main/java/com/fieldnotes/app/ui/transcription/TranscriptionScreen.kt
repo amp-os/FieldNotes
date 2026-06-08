@@ -1,5 +1,5 @@
 // FieldNotes — TranscriptionScreen.kt
-// Authored by: ui module | Implements: 08_UI_MODULE.md
+// Authored by: ui module | Implements: 08_UI_MODULE.md (issue 2: non-blocking transcription)
 @file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.fieldnotes.app.ui.transcription
@@ -13,23 +13,27 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,7 +54,13 @@ fun TranscriptionScreen(
     onDiscarded: () -> Unit,
     viewModel: TranscriptionViewModel = hiltViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val allLabels by viewModel.allLabels.collectAsStateWithLifecycle()
+
+    // Close the screen once the note is saved or auto-save is armed.
+    LaunchedEffect(Unit) {
+        viewModel.navigateSaved.collect { onSaved() }
+    }
 
     Scaffold(
         topBar = {
@@ -65,63 +75,75 @@ fun TranscriptionScreen(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            when (val state = uiState) {
-                TranscriptionUiState.Transcribing -> Centered {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text("Transcribing…")
-                }
-                TranscriptionUiState.Saving -> Centered {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text("Saving…")
-                }
-                is TranscriptionUiState.Error -> Centered { Text(state.message) }
-                is TranscriptionUiState.Ready -> ReadyContent(state, viewModel, onSaved, onDiscarded)
+            when {
+                !state.loaded -> Centered { CircularProgressIndicator() }
+                state.notFound -> Centered { Text("Recording not found") }
+                else -> Content(state, allLabels, viewModel, onDiscarded)
             }
         }
     }
 }
 
 @Composable
-private fun ReadyContent(
-    state: TranscriptionUiState.Ready,
+private fun Content(
+    state: TranscriptionUiState,
+    allLabels: List<String>,
     viewModel: TranscriptionViewModel,
-    onSaved: () -> Unit,
     onDiscarded: () -> Unit,
 ) {
     var newFilename by remember { mutableStateOf("") }
     var selectedNote by remember { mutableStateOf<String?>(null) }
     var dropdownExpanded by remember { mutableStateOf(false) }
-    val allLabels by viewModel.allLabels.collectAsStateWithLifecycle()
 
     val effectiveFilename = when {
         newFilename.isNotBlank() -> newFilename
         selectedNote != null -> selectedNote!!
         else -> ""
     }
+    val hasDestination = effectiveFilename.isNotBlank()
 
     Column(
-        Modifier.fillMaxSize().padding(16.dp),
+        Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
     ) {
         Text(state.audioFileName, fontFamily = FontFamily.Monospace)
         Text("Duration: ${state.durationLabel}")
-        if (state.modelMissing) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Transcription model not downloaded — you can still type a note below " +
-                    "(Settings → download the model to enable automatic transcription).",
-                color = FieldRed,
-            )
-        }
         Spacer(Modifier.height(12.dp))
 
-        OutlinedTextField(
-            value = state.text,
-            onValueChange = viewModel::updateText,
-            label = { Text("Transcription") },
-            modifier = Modifier.fillMaxWidth().height(200.dp).testTag("transcription_text"),
-        )
+        // Transcription region: progress while running, editable text once ready.
+        if (state.transcribing) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth().height(120.dp),
+            ) {
+                Column(
+                    Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text("Transcribing… pick a note and labels below in the meantime.")
+                }
+            }
+        } else {
+            if (state.modelMissing) {
+                Text(
+                    "Transcription model not downloaded — type your note below " +
+                        "(Settings → download a model to enable automatic transcription).",
+                    color = FieldRed,
+                )
+                Spacer(Modifier.height(8.dp))
+            } else if (state.failed) {
+                Text("Transcription failed${state.error?.let { ": $it" } ?: ""}. You can still type a note.", color = FieldRed)
+                Spacer(Modifier.height(8.dp))
+            }
+            OutlinedTextField(
+                value = state.text,
+                onValueChange = viewModel::updateText,
+                label = { Text("Transcription") },
+                modifier = Modifier.fillMaxWidth().height(200.dp).testTag("transcription_text"),
+            )
+        }
 
         Spacer(Modifier.height(16.dp))
         Text("Save to note:")
@@ -165,15 +187,31 @@ private fun ReadyContent(
             onRemove = { viewModel.updateLabels(state.labels - it) },
         )
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(24.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = onDiscarded, modifier = Modifier.weight(1f)) { Text("DISCARD") }
-            Button(
-                onClick = { viewModel.save(effectiveFilename, onSaved) },
-                enabled = effectiveFilename.isNotBlank(),
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(),
-            ) { Text("SAVE NOTE") }
+            if (state.transcribing) {
+                // No need to wait: append automatically as soon as the transcription is ready.
+                Button(
+                    onClick = { viewModel.saveWhenReady(effectiveFilename) },
+                    enabled = hasDestination,
+                    modifier = Modifier.weight(1f),
+                ) { Text("SAVE WHEN READY") }
+            } else {
+                Button(
+                    onClick = { viewModel.saveNow(effectiveFilename) },
+                    enabled = hasDestination,
+                    modifier = Modifier.weight(1f),
+                ) { Text("SAVE NOTE") }
+            }
+        }
+        if (state.transcribing && hasDestination) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "“Save when ready” appends the transcription to “$effectiveFilename” as soon as it finishes — you can leave now.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         Spacer(Modifier.height(8.dp))
     }
