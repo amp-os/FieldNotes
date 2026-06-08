@@ -14,6 +14,7 @@ import com.fieldnotes.app.data.db.SyncQueueEntity
 import com.fieldnotes.app.data.db.labelList
 import com.fieldnotes.app.data.db.toLabelsJson
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
@@ -85,6 +86,12 @@ class RecordingRepository @Inject constructor(
 
     suspend fun allLabels(): List<String> =
         recordingDao.getAllRecordingsOnce().flatMap { it.labelList() }.distinct().sorted()
+
+    /** Reactive set of all distinct labels in use, for one-touch label suggestions. */
+    fun allLabelsFlow(): Flow<List<String>> =
+        recordingDao.getAllRecordings().map { list ->
+            list.flatMap { it.labelList() }.distinct().sorted()
+        }
 
     private suspend fun enqueueAndSchedule(file: File, fileType: String, folder: String) {
         syncQueueDao.enqueue(

@@ -8,14 +8,12 @@ package com.fieldnotes.app.ui.recordings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -23,18 +21,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -50,11 +42,14 @@ import com.fieldnotes.app.data.db.labelList
 import com.fieldnotes.app.data.repository.RecordingRepository
 import com.fieldnotes.app.ui.common.AudioPlayer
 import com.fieldnotes.app.ui.common.FieldRed
+import com.fieldnotes.app.ui.common.LabelEditor
 import com.fieldnotes.app.ui.common.SyncStatusIcon
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -72,6 +67,10 @@ class RecordingDetailViewModel @Inject constructor(
 
     private val _recording = MutableStateFlow<RecordingEntity?>(null)
     val recording: StateFlow<RecordingEntity?> = _recording.asStateFlow()
+
+    /** All existing labels, for one-touch suggestions. */
+    val allLabels: StateFlow<List<String>> = recordingRepository.allLabelsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init { reload() }
 
@@ -111,7 +110,7 @@ fun RecordingDetailScreen(
     viewModel: RecordingDetailViewModel = hiltViewModel(),
 ) {
     val recording by viewModel.recording.collectAsStateWithLifecycle()
-    var newLabel by remember { mutableStateOf("") }
+    val allLabels by viewModel.allLabels.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -152,27 +151,12 @@ fun RecordingDetailScreen(
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             Text("Labels", style = MaterialTheme.typography.titleSmall)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                rec.labelList().forEach { label ->
-                    InputChip(
-                        selected = false,
-                        onClick = { viewModel.removeLabel(label) },
-                        label = { Text(label) },
-                        trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remove $label") },
-                    )
-                }
-            }
-            OutlinedTextField(
-                value = newLabel,
-                onValueChange = { newLabel = it },
-                label = { Text("Add label") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            LabelEditor(
+                labels = rec.labelList(),
+                suggestions = allLabels,
+                onAdd = viewModel::addLabel,
+                onRemove = viewModel::removeLabel,
             )
-            OutlinedButton(onClick = {
-                viewModel.addLabel(newLabel)
-                newLabel = ""
-            }) { Text("+ Add label") }
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             Button(

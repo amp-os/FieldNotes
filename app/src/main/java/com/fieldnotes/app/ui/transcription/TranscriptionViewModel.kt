@@ -10,8 +10,10 @@ import com.fieldnotes.app.data.repository.RecordingRepository
 import com.fieldnotes.app.data.repository.TranscriptionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -42,6 +44,10 @@ class TranscriptionViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow<TranscriptionUiState>(TranscriptionUiState.Transcribing)
     val uiState: StateFlow<TranscriptionUiState> = _uiState.asStateFlow()
+
+    /** All existing labels, for one-touch suggestions. */
+    val allLabels: StateFlow<List<String>> = recordingRepository.allLabelsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init { transcribe() }
 

@@ -13,12 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,7 +24,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.InputChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -46,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fieldnotes.app.ui.common.FieldRed
+import com.fieldnotes.app.ui.common.LabelEditor
 
 @Composable
 fun TranscriptionScreen(
@@ -96,7 +93,7 @@ private fun ReadyContent(
     var newFilename by remember { mutableStateOf("") }
     var selectedNote by remember { mutableStateOf<String?>(null) }
     var dropdownExpanded by remember { mutableStateOf(false) }
-    var newLabel by remember { mutableStateOf("") }
+    val allLabels by viewModel.allLabels.collectAsStateWithLifecycle()
 
     val effectiveFilename = when {
         newFilename.isNotBlank() -> newFilename
@@ -161,31 +158,12 @@ private fun ReadyContent(
 
         Spacer(Modifier.height(16.dp))
         Text("Labels:")
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.labels) { label ->
-                InputChip(
-                    selected = false,
-                    onClick = { viewModel.updateLabels(state.labels - label) },
-                    label = { Text(label) },
-                    trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remove $label") },
-                )
-            }
-        }
-        OutlinedTextField(
-            value = newLabel,
-            onValueChange = { newLabel = it },
-            label = { Text("Add label") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+        LabelEditor(
+            labels = state.labels,
+            suggestions = allLabels,
+            onAdd = { viewModel.updateLabels(state.labels + it) },
+            onRemove = { viewModel.updateLabels(state.labels - it) },
         )
-        OutlinedButton(
-            onClick = {
-                if (newLabel.isNotBlank()) {
-                    viewModel.updateLabels(state.labels + newLabel.trim())
-                    newLabel = ""
-                }
-            },
-        ) { Text("+ Add label") }
 
         Spacer(Modifier.weight(1f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
