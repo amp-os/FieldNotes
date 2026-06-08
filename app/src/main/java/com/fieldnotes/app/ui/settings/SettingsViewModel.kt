@@ -129,7 +129,11 @@ class SettingsViewModel @Inject constructor(
     fun buildAuthIntent(): Intent? = driveAuthManager.authorizationRequestIntent()
 
     /** Feed the ActivityResult data back to complete the token exchange. */
-    fun onAuthResult(data: Intent?) = viewModelScope.launch { driveAuthManager.handleAuthorizationResponse(data) }
+    fun onAuthResult(data: Intent?) = viewModelScope.launch {
+        driveAuthManager.handleAuthorizationResponse(data)
+        // On (re)connect, pull existing Drive notes back into the app (issue 7).
+        syncScheduler.scheduleSync(settingsRepository.isWifiOnly())
+    }
 
     fun signOut() = viewModelScope.launch { driveAuthManager.signOut() }
 

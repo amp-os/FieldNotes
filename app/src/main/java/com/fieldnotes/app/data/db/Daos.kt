@@ -41,6 +41,9 @@ interface NoteDao {
     @Query("SELECT * FROM notes ORDER BY updatedAt DESC")
     fun getAllNotes(): Flow<List<NoteEntity>>
 
+    @Query("SELECT * FROM notes WHERE filename = :filename")
+    suspend fun getByFilename(filename: String): NoteEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(note: NoteEntity)
 

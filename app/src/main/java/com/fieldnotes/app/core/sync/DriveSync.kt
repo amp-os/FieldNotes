@@ -18,6 +18,32 @@ class DriveSync @Inject constructor(
     /** True when uploads can be attempted (client id present AND signed in). */
     suspend fun canSync(): Boolean = authManager.getDriveService() != null
 
+    /** A note file present in Drive's FieldNotes/notes folder. */
+    data class RemoteNote(val id: String, val name: String)
+
+    /** List the .md notes already in FieldNotes/notes on Drive (for re-import after reconnect). */
+    suspend fun listRemoteNotes(): List<RemoteNote> = withContext(Dispatchers.IO) {
+        val drive = authManager.getDriveService() ?: return@withContext emptyList()
+        val rootFolderId = findOrCreateFolder(drive, "FieldNotes", null)
+        val notesFolderId = findOrCreateFolder(drive, "notes", rootFolderId)
+        val result = drive.files().list()
+            .setQ("'$notesFolderId' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'")
+            .setSpaces("drive")
+            .setFields("files(id,name)")
+            .execute()
+        result.files.orEmpty()
+            .filter { it.name.endsWith(".md", ignoreCase = true) }
+            .map { RemoteNote(it.id, it.name) }
+    }
+
+    /** Download a Drive file's bytes into [dest]. */
+    suspend fun downloadFile(fileId: String, dest: File): Unit = withContext(Dispatchers.IO) {
+        val drive = authManager.getDriveService()
+            ?: throw IllegalStateException("Not authenticated with Drive")
+        dest.parentFile?.mkdirs()
+        dest.outputStream().use { out -> drive.files().get(fileId).executeMediaAndDownloadTo(out) }
+    }
+
     /** Upload (or update) [localFile] into FieldNotes/[driveFolderName]. Returns the Drive file id. */
     suspend fun uploadFile(
         localFile: File,

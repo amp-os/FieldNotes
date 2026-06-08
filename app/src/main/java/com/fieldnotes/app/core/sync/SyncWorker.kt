@@ -22,17 +22,22 @@ class SyncWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val driveSync: DriveSync,
+    private val noteImporter: NoteImporter,
     private val syncQueueDao: SyncQueueDao,
     private val recordingDao: RecordingDao,
     private val noteDao: NoteDao,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val pending = syncQueueDao.getPendingItems()
-        if (pending.isEmpty()) return Result.success()
-
         // Graceful degradation: nothing to do if we can't reach Drive. Keep items queued.
         if (!driveSync.canSync()) return Result.success()
+
+        // Re-import any notes already in Drive (reinstall / reconnect) before pushing local changes,
+        // so existing notes reappear and are appended to rather than replaced (issue 7).
+        noteImporter.importExistingNotes()
+
+        val pending = syncQueueDao.getPendingItems()
+        if (pending.isEmpty()) return Result.success()
 
         var allSucceeded = true
         for (item in pending) {
@@ -42,7 +47,13 @@ class SyncWorker @AssistedInject constructor(
                     syncQueueDao.delete(item)
                     continue
                 }
-                val driveId = driveSync.uploadFile(file, item.driveFolderName)
+                // Update the existing Drive file when we know it, so a re-synced note isn't duplicated.
+                val existingDriveId = if (item.fileType == TYPE_NOTE) {
+                    noteDao.getByFilename(file.name)?.driveFileId
+                } else {
+                    null
+                }
+                val driveId = driveSync.uploadFile(file, item.driveFolderName, existingDriveId)
                 when (item.fileType) {
                     TYPE_FIELD, TYPE_VOICE ->
                         recordingDao.updateSyncStatusByPath(item.filePath, SyncStatus.SYNCED.name, driveId)
