@@ -29,6 +29,7 @@ lifecycle = "2.8.7"
 datastore = "1.1.1"
 serialization = "1.7.0"
 core-ktx = "1.13.1"
+appcompat = "1.7.0"
 activity-compose = "1.9.3"
 accompanist = "0.36.0"
 # Test
@@ -45,6 +46,8 @@ coroutines-test = "1.8.1"
 # Kotlin / Core
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "core-ktx" }
+# AppCompat: required because AppAuth's redirect/management activities are AppCompat activities.
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
 
 # Compose
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "compose-bom" }

@@ -6,14 +6,19 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.fieldnotes.app.MainActivity
 import com.fieldnotes.app.R
 import com.fieldnotes.app.core.audio.RecordingMode
@@ -39,7 +44,6 @@ class RecordingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    @Suppress("MissingPermission") // RECORD_AUDIO is requested by the UI before any start intent.
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START_FIELD -> startRecording(RecordingMode.FIELD)
@@ -49,12 +53,35 @@ class RecordingService : Service() {
         return START_STICKY
     }
 
-    @Suppress("MissingPermission")
+    @SuppressLint("MissingPermission") // guarded by the checkSelfPermission below
     private fun startRecording(mode: RecordingMode) {
-        ensureChannel()
-        startElapsed = SystemClock.elapsedRealtime()
-        startForegroundCompat(buildNotification(mode, "00:00:00"))
-        sessionManager.start(mode)
+        // A microphone foreground service can't be started without RECORD_AUDIO. The in-app buttons
+        // request it, but the widget / Quick Settings tile can reach here first — bounce to the app
+        // to request the permission rather than crashing with a SecurityException.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            startActivity(
+                Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            stopSelf()
+            return
+        }
+
+        try {
+            ensureChannel()
+            startElapsed = SystemClock.elapsedRealtime()
+            startForegroundCompat(buildNotification(mode, "00:00:00"))
+            sessionManager.start(mode)
+        } catch (e: Exception) {
+            // e.g. ForegroundServiceStartNotAllowedException / SecurityException when not in an
+            // eligible state to start a mic FGS. Don't crash; just stop.
+            Log.e(TAG, "Could not start recording foreground service", e)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
+
         tickerJob?.cancel()
         tickerJob = scope.launch {
             while (isActive) {
@@ -134,6 +161,7 @@ class RecordingService : Service() {
         const val ACTION_START_VOICE = "com.fieldnotes.app.action.START_VOICE"
         const val ACTION_STOP = "com.fieldnotes.app.action.STOP"
 
+        private const val TAG = "RecordingService"
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "recording_channel"
 
