@@ -59,7 +59,18 @@ Java_com_fieldnotes_app_core_whisper_WhisperEngine_transcribeAudio(
     params.token_timestamps = false;
 
     float duration_s = numSamples / 16000.0f;
-    LOGI("starting inference: %.1fs of audio, n_threads=%d", duration_s, params.n_threads);
+
+    // Whisper's encoder otherwise always processes a full 30s window (1500 frames) even for a 3s
+    // clip — the dominant cost for short voice notes. Shrink audio_ctx to ~the real audio length
+    // (~50 encoder frames/sec) plus ~3s of headroom so trailing speech isn't clipped. Capped at the
+    // 1500 default for clips near/over 30s.
+    int audio_ctx = (int)((duration_s + 3.0f) * 50.0f);
+    if (audio_ctx < 128) audio_ctx = 128;
+    if (audio_ctx > 1500) audio_ctx = 1500;
+    params.audio_ctx = audio_ctx;
+
+    LOGI("starting inference: %.1fs of audio, n_threads=%d, audio_ctx=%d",
+         duration_s, params.n_threads, audio_ctx);
     long t0 = now_ms();
     int result = whisper_full(ctx, params, samples, numSamples);
     long elapsed = now_ms() - t0;
