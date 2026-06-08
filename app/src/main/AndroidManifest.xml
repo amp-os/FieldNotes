@@ -71,6 +71,17 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".widget.RecordFieldQuickSettingsTile"
+            android:exported="true"
+            android:label="@string/qs_tile_field_label"
+            android:icon="@drawable/ic_mic"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- WorkManager: disable default initializer; Hilt provides a custom WorkerFactory. -->
         <provider
             android:name="androidx.startup.InitializationProvider"

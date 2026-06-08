@@ -7,5 +7,7 @@
 /captures
 .externalNativeBuild
 .cxx/
+# Ad-hoc adb logcat captures for debugging (see README)
+fieldnotes-log*.txt
 **/build/
 # whisper.cpp is added as a git submodule; its working tree is tracked via .gitmodules

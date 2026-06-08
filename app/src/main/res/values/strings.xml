@@ -4,6 +4,7 @@
     <string name="app_name">FieldNotes</string>
     <string name="widget_description">Start a field recording or voice note</string>
     <string name="qs_tile_label">Voice Note</string>
+    <string name="qs_tile_field_label">Field Rec</string>
     <string name="recording_channel_name">Recording</string>
     <string name="recording_channel_desc">Shown while FieldNotes is recording audio</string>
 </resources>
