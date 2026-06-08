@@ -34,8 +34,13 @@ class NoteRepository @Inject constructor(
     suspend fun readNote(filename: String): String? = markdownManager.readNote(filename)
 
     /** Prepend [text] to [filename], persist note metadata, and queue the .md for Drive sync. */
-    suspend fun saveTranscription(filename: String, text: String, timestamp: Long = System.currentTimeMillis()): String {
-        val file = markdownManager.prependEntry(filename, text, timestamp)
+    suspend fun saveTranscription(
+        filename: String,
+        text: String,
+        labels: List<String> = emptyList(),
+        timestamp: Long = System.currentTimeMillis(),
+    ): String {
+        val file = markdownManager.prependEntry(filename, text, timestamp, labels)
         noteDao.upsert(
             NoteEntity(
                 filename = file.name,

@@ -29,12 +29,18 @@ class MarkdownManager @Inject constructor(
         filename: String,
         transcriptionText: String,
         timestamp: Long = System.currentTimeMillis(),
+        labels: List<String> = emptyList(),
     ): File = withContext(Dispatchers.IO) {
         val file = localFileManager.noteFile(filename)
         val newEntry = buildString {
             appendLine("## ${formatDateHeading(timestamp)}")
             appendLine()
             appendLine(transcriptionText.trim())
+            val tagLine = formatTags(labels)
+            if (tagLine.isNotEmpty()) {
+                appendLine()
+                appendLine(tagLine)
+            }
             appendLine()
             appendLine("---")
             appendLine()
@@ -78,6 +84,18 @@ class MarkdownManager @Inject constructor(
 
     private fun formatDateHeading(timestamp: Long): String =
         SimpleDateFormat("yyyy-MM-dd — HH:mm", Locale.getDefault()).format(Date(timestamp))
+
+    /**
+     * Render labels as searchable `@tags` on a single line. Each tag is a single token (internal
+     * whitespace collapsed to '-'), de-duplicated, blanks dropped. Returns "" when there are none.
+     */
+    private fun formatTags(labels: List<String>): String =
+        labels.asSequence()
+            .map { it.trim().removePrefix("@").trim() }
+            .filter { it.isNotEmpty() }
+            .map { "@" + it.replace(Regex("\\s+"), "-") }
+            .distinct()
+            .joinToString(" ")
 }
 
 data class NoteInfo(

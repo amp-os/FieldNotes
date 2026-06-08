@@ -89,6 +89,22 @@ class MarkdownManagerTest {
     }
 
     @Test
+    fun `appends labels as searchable at-tags`() = runTest {
+        manager.prependEntry(
+            "tagged",
+            "Body text",
+            timestamp = 0L,
+            labels = listOf("birds", "field work", "@birds"),
+        )
+        val content = File(notesDir, "tagged.md").readText()
+        // Multi-word labels collapse to a single token; duplicates and stray @ are normalised.
+        assertThat(content).contains("@birds @field-work")
+        // Tags sit after the body and before the entry separator.
+        assertThat(content.indexOf("Body text")).isLessThan(content.indexOf("@birds"))
+        assertThat(content.indexOf("@birds")).isLessThan(content.indexOf("---"))
+    }
+
+    @Test
     fun `readNote returns content and null`() = runTest {
         assertThat(manager.readNote("missing")).isNull()
         manager.prependEntry("present", "hello", 0L)

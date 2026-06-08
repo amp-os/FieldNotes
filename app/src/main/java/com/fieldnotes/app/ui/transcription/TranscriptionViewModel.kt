@@ -109,7 +109,7 @@ class TranscriptionViewModel @Inject constructor(
         _uiState.value = TranscriptionUiState.Saving
         viewModelScope.launch {
             runCatching {
-                val savedName = noteRepository.saveTranscription(filename, s.text)
+                val savedName = noteRepository.saveTranscription(filename, s.text, s.labels)
                 recordingRepository.setNoteFilename(recordingId, savedName)
                 if (s.labels.isNotEmpty()) recordingRepository.updateLabels(recordingId, s.labels)
             }.onSuccess { onSaved() }
