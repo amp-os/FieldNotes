@@ -57,6 +57,7 @@ fun SettingsScreen(
     val storageUsed by viewModel.storageUsed.collectAsStateWithLifecycle()
     val localFolderName by viewModel.localNotesFolderName.collectAsStateWithLifecycle()
     val preferLocal by viewModel.preferLocalNotes.collectAsStateWithLifecycle()
+    val downloadError by viewModel.downloadError.collectAsStateWithLifecycle()
     val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         viewModel.onAuthResult(result.data)
     }
@@ -103,7 +104,8 @@ fun SettingsScreen(
         }
         Text("Transcription model", style = MaterialTheme.typography.bodyMedium)
         Text(
-            "Quantized models are noticeably faster with near-identical accuracy.",
+            "Tip: the non-quantized models (e.g. \"Tiny\", \"Base\") are much faster on this device — " +
+                "quantized variants only save disk space and actually run several times slower here.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -114,6 +116,9 @@ fun SettingsScreen(
                 onDownload = { viewModel.downloadModel(row.model.fileName) },
                 onDelete = { viewModel.deleteModel(row.model.fileName) },
             )
+        }
+        downloadError?.let { message ->
+            Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
 
         HorizontalDivider()

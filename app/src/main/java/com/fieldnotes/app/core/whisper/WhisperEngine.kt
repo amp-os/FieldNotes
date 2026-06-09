@@ -33,7 +33,11 @@ class WhisperEngine @Inject constructor(
 
     private external fun initContext(modelPath: String): Long
     private external fun transcribeAudio(ctxPtr: Long, audioData: FloatArray, numSamples: Int): String
+    private external fun currentProgress(): Int
     private external fun freeContext(ctxPtr: Long)
+
+    /** 0–100 progress of the in-flight transcription (transcribe() is serialised, so one at a time). */
+    fun progress(): Int = currentProgress()
 
     /** True once the native model context is loaded. */
     val isReady: Boolean get() = contextPtr != 0L

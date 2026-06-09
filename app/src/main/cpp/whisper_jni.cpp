@@ -4,12 +4,18 @@
 #include <jni.h>
 #include <string>
 #include <chrono>
+#include <atomic>
 #include <android/log.h>
 #include "whisper.h"
 
 #define TAG "WhisperJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+// 0–100, updated by whisper's progress_callback during a run. The engine serialises transcriptions
+// on a mutex (one at a time), so a single global tracks "the current run" — Kotlin polls it for the
+// progress UI rather than calling back into the JVM from a native thread.
+static std::atomic<int> g_progress{0};
 
 static long now_ms() {
     using namespace std::chrono;
@@ -58,6 +64,14 @@ Java_com_fieldnotes_app_core_whisper_WhisperEngine_transcribeAudio(
     params.single_segment = false;
     params.token_timestamps = false;
 
+    // Report 0–100 progress into g_progress for the polling progress UI. whisper invokes this on its
+    // worker thread between windows; just store the value (no JVM calls here).
+    g_progress.store(0);
+    params.progress_callback = [](struct whisper_context*, struct whisper_state*, int progress, void*) {
+        g_progress.store(progress);
+    };
+    params.progress_callback_user_data = nullptr;
+
     float duration_s = numSamples / 16000.0f;
 
     // Whisper's encoder otherwise always processes a full 30s window (1500 frames) even for a 3s
@@ -71,6 +85,8 @@ Java_com_fieldnotes_app_core_whisper_WhisperEngine_transcribeAudio(
 
     LOGI("starting inference: %.1fs of audio, n_threads=%d, audio_ctx=%d",
          duration_s, params.n_threads, audio_ctx);
+    // Reset so the breakdown below is for this call only (the context is shared/reused across runs).
+    whisper_reset_timings(ctx);
     long t0 = now_ms();
     int result = whisper_full(ctx, params, samples, numSamples);
     long elapsed = now_ms() - t0;
@@ -86,6 +102,17 @@ Java_com_fieldnotes_app_core_whisper_WhisperEngine_transcribeAudio(
     LOGI("inference done: %ldms for %.1fs audio (%.2fx realtime on %.0fs window)",
          elapsed, duration_s, window_s * 1000.0f / (float)elapsed, window_s);
 
+    // Breakdown so we can tell whether long-form (>30s, multi-window) time is encode-bound
+    // (audio_ctx / SIMD kernels) or decode-bound (rolling prompt context + temperature fallbacks).
+    // whisper's own logs don't reach logcat on Android, so read the public timings and log them here.
+    whisper_timings* tm = whisper_get_timings(ctx);
+    if (tm != nullptr) {
+        LOGI("timings: encode=%.0fms decode=%.0fms batchd=%.0fms prompt=%.0fms sample=%.0fms",
+             tm->encode_ms, tm->decode_ms, tm->batchd_ms, tm->prompt_ms, tm->sample_ms);
+    }
+
+    g_progress.store(100);
+
     std::string output;
     const int n_segments = whisper_full_n_segments(ctx);
     for (int i = 0; i < n_segments; ++i) {
@@ -93,6 +120,12 @@ Java_com_fieldnotes_app_core_whisper_WhisperEngine_transcribeAudio(
         if (i < n_segments - 1) output += " ";
     }
     return env->NewStringUTF(output.c_str());
+}
+
+JNIEXPORT jint JNICALL
+Java_com_fieldnotes_app_core_whisper_WhisperEngine_currentProgress(
+        JNIEnv* /* env */, jobject /* obj */) {
+    return g_progress.load();
 }
 
 JNIEXPORT void JNICALL

@@ -85,6 +85,11 @@ class WhisperModelManager @Inject constructor(
                 partial.copyTo(dest, overwrite = true); partial.delete()
             }
             emit(DownloadProgress(dest.length(), dest.length(), complete = true))
+        } catch (e: Exception) {
+            // A dropped connection (SocketException) etc. must not leave a truncated .part behind,
+            // and must propagate as a normal flow error for the collector to handle — not crash.
+            partial.delete()
+            throw e
         } finally {
             connection.disconnect()
         }
@@ -101,14 +106,16 @@ class WhisperModelManager @Inject constructor(
         private const val REPO =
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
 
-        /** All selectable models, fastest/smallest first. */
+        // Fastest first. NOTE: on this device (Pixel 8 / Tensor G3) the q5_1 quantized variants run
+        // ~5x SLOWER than the F16 models — measured 2026-06-09 (tiny.en 57s vs tiny.en-q5_1 271s for
+        // the same 62s clip). So F16 leads each size; quantized is offered only to save disk space.
         val MODELS: List<WhisperModel> = listOf(
-            WhisperModel(TINY_MODEL_Q5, "Tiny · quantized", "31 MB", REPO + TINY_MODEL_Q5),
             WhisperModel(TINY_MODEL, "Tiny", "75 MB", REPO + TINY_MODEL),
-            WhisperModel(BASE_MODEL_Q5, "Base · quantized", "57 MB", REPO + BASE_MODEL_Q5),
             WhisperModel(BASE_MODEL, "Base", "142 MB", REPO + BASE_MODEL),
-            WhisperModel(SMALL_MODEL_Q5, "Small · quantized", "182 MB", REPO + SMALL_MODEL_Q5),
             WhisperModel(SMALL_MODEL, "Small", "466 MB", REPO + SMALL_MODEL),
+            WhisperModel(TINY_MODEL_Q5, "Tiny · quantized (slower)", "31 MB", REPO + TINY_MODEL_Q5),
+            WhisperModel(BASE_MODEL_Q5, "Base · quantized (slower)", "57 MB", REPO + BASE_MODEL_Q5),
+            WhisperModel(SMALL_MODEL_Q5, "Small · quantized (slower)", "182 MB", REPO + SMALL_MODEL_Q5),
         )
 
         fun modelFor(fileName: String): WhisperModel? = MODELS.find { it.fileName == fileName }

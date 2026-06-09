@@ -5,13 +5,18 @@
 // transcription is done, no need to wait".
 package com.fieldnotes.app.core.whisper
 
+import android.content.Context
 import com.fieldnotes.app.data.repository.NoteDestination
 import com.fieldnotes.app.data.repository.NoteRepository
 import com.fieldnotes.app.data.repository.RecordingRepository
 import com.fieldnotes.app.data.repository.TranscriptionRepository
+import com.fieldnotes.app.service.TranscriptionService
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -27,11 +32,24 @@ import javax.inject.Singleton
 
 @Singleton
 class TranscriptionManager @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val transcriptionRepository: TranscriptionRepository,
     private val noteRepository: NoteRepository,
     private val recordingRepository: RecordingRepository,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    // Number of transcriptions actively running. A foreground service keeps the process alive while
+    // any are in flight (a long job would otherwise be lost if the app is reclaimed in the background).
+    private val activeRuns = java.util.concurrent.atomic.AtomicInteger(0)
+
+    private fun beginForegroundRun() {
+        if (activeRuns.getAndIncrement() == 0) TranscriptionService.start(context)
+    }
+
+    private fun endForegroundRun() {
+        if (activeRuns.decrementAndGet() == 0) TranscriptionService.stop(context)
+    }
 
     enum class Status { RUNNING, DONE, FAILED, MODEL_MISSING }
 
@@ -40,6 +58,8 @@ class TranscriptionManager @Inject constructor(
         val status: Status,
         val text: String = "",
         val error: String? = null,
+        /** 0–100 while RUNNING. Reflects the engine's current run (transcriptions are serialised). */
+        val progress: Int = 0,
     )
 
     private data class AutoSave(
@@ -71,9 +91,21 @@ class TranscriptionManager @Inject constructor(
                 put(recordingId, Job(recordingId, Status.MODEL_MISSING))
                 return@launch
             }
+            // Poll native progress (0–100) so the UI shows a real bar instead of an endless spinner.
+            val poller = launch {
+                while (isActive) {
+                    val p = transcriptionRepository.currentProgress()
+                    _jobs.value[recordingId]?.let {
+                        if (it.status == Status.RUNNING && p != it.progress) put(recordingId, it.copy(progress = p))
+                    }
+                    delay(400)
+                }
+            }
+            beginForegroundRun()
             runCatching { transcriptionRepository.transcribeRecording(recordingId) }
+                .also { poller.cancel(); endForegroundRun() }
                 .onSuccess { result ->
-                    put(recordingId, Job(recordingId, Status.DONE, text = result.text))
+                    put(recordingId, Job(recordingId, Status.DONE, text = result.text, progress = 100))
                     runAutoSaveIfArmed(recordingId, result.text)
                 }
                 .onFailure { e ->
