@@ -110,7 +110,11 @@ class WhisperEngine @Inject constructor(
         codec.configure(format, null, null, 0)
         codec.start()
 
-        val pcm = ArrayList<Short>(1 shl 20)
+        // Accumulate each output buffer as a primitive ShortArray chunk, then concatenate once. The
+        // previous ArrayList<Short> boxed every sample (~3.9M objects for a 4-min clip → ~12s + heavy
+        // GC); chunked primitive arrays decode the same clip in a fraction of that.
+        val chunks = ArrayList<ShortArray>()
+        var totalShorts = 0
         val bufferInfo = MediaCodec.BufferInfo()
         var sawInputEos = false
         var sawOutputEos = false
@@ -138,7 +142,10 @@ class WhisperEngine @Inject constructor(
                         outBuf.position(bufferInfo.offset)
                         outBuf.limit(bufferInfo.offset + bufferInfo.size)
                         val shorts = outBuf.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-                        while (shorts.hasRemaining()) pcm.add(shorts.get())
+                        val chunk = ShortArray(shorts.remaining())
+                        shorts.get(chunk)
+                        chunks.add(chunk)
+                        totalShorts += chunk.size
                     }
                     codec.releaseOutputBuffer(outIndex, false)
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) sawOutputEos = true
@@ -150,28 +157,36 @@ class WhisperEngine @Inject constructor(
             extractor.release()
         }
 
+        val pcm = ShortArray(totalShorts)
+        var offset = 0
+        for (chunk in chunks) {
+            chunk.copyInto(pcm, offset)
+            offset += chunk.size
+        }
+
         val mono = if (inputChannels > 1) downmixToMono(pcm, inputChannels) else pcm
         val resampled = if (inputSampleRate != TARGET_RATE) resample(mono, inputSampleRate, TARGET_RATE) else mono
         FloatArray(resampled.size) { resampled[it] / 32768f }
     }
 
-    private fun downmixToMono(interleaved: List<Short>, channels: Int): List<Short> {
-        val out = ArrayList<Short>(interleaved.size / channels)
+    private fun downmixToMono(interleaved: ShortArray, channels: Int): ShortArray {
+        val out = ShortArray(interleaved.size / channels)
+        var o = 0
         var i = 0
         while (i + channels <= interleaved.size) {
             var sum = 0
             for (c in 0 until channels) sum += interleaved[i + c]
-            out.add((sum / channels).toShort())
+            out[o++] = (sum / channels).toShort()
             i += channels
         }
         return out
     }
 
-    private fun resample(samples: List<Short>, fromRate: Int, toRate: Int): List<Short> {
+    private fun resample(samples: ShortArray, fromRate: Int, toRate: Int): ShortArray {
+        if (samples.isEmpty()) return ShortArray(0)
         val ratio = fromRate.toDouble() / toRate.toDouble()
         val outSize = (samples.size / ratio).toInt()
-        if (samples.isEmpty()) return emptyList()
-        return List(outSize) { i ->
+        return ShortArray(outSize) { i ->
             val src = i * ratio
             val lo = src.toInt().coerceIn(0, samples.size - 1)
             val hi = (lo + 1).coerceIn(0, samples.size - 1)
