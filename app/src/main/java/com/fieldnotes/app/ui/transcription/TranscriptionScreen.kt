@@ -122,9 +122,15 @@ private fun Content(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text("Transcribing… pick a note and labels below in the meantime.")
+                    if (state.progress in 1..99) {
+                        CircularProgressIndicator(progress = { state.progress / 100f })
+                        Spacer(Modifier.height(12.dp))
+                        Text("Transcribing… ${state.progress}% — pick a note and labels below in the meantime.")
+                    } else {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(12.dp))
+                        Text("Transcribing… pick a note and labels below in the meantime.")
+                    }
                 }
             }
         } else {

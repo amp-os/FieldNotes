@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -105,6 +106,10 @@ class SettingsViewModel @Inject constructor(
     private val _modelRefresh = MutableStateFlow(0)
     // fileName -> download fraction while a download is in flight.
     private val _downloading = MutableStateFlow<Map<String, Float>>(emptyMap())
+    // Last model-download failure (e.g. lost connection), for the UI to surface; cleared on retry.
+    private val _downloadError = MutableStateFlow<String?>(null)
+    val downloadError: StateFlow<String?> = _downloadError.asStateFlow()
+    fun clearDownloadError() { _downloadError.value = null }
 
     /** One row per catalog model, reflecting downloaded/selected/in-progress state. */
     val models: StateFlow<List<ModelUiState>> =
@@ -144,15 +149,22 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun downloadModel(fileName: String) = viewModelScope.launch {
-        modelManager.downloadModel(fileName).collect { progress ->
-            if (progress.complete) {
+        _downloadError.value = null
+        modelManager.downloadModel(fileName)
+            .catch { e ->
+                // A network drop mid-download used to propagate uncaught and crash the app. Surface it.
                 _downloading.update { it - fileName }
-                _modelRefresh.update { it + 1 }
-                refreshStorage()
-            } else {
-                _downloading.update { it + (fileName to progress.fraction) }
+                _downloadError.value = "Download failed: ${e.message ?: "connection lost"}"
             }
-        }
+            .collect { progress ->
+                if (progress.complete) {
+                    _downloading.update { it - fileName }
+                    _modelRefresh.update { it + 1 }
+                    refreshStorage()
+                } else {
+                    _downloading.update { it + (fileName to progress.fraction) }
+                }
+            }
     }
 
     fun deleteModel(fileName: String) = viewModelScope.launch(Dispatchers.IO) {

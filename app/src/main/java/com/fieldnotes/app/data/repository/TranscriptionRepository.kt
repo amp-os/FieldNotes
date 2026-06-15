@@ -30,4 +30,7 @@ class TranscriptionRepository @Inject constructor(
 
     suspend fun transcribeFile(file: File): TranscriptionResult =
         whisperEngine.transcribe(file, settingsRepository.selectedModel.first())
+
+    /** 0–100 progress of the in-flight transcription, for the progress UI. */
+    fun currentProgress(): Int = whisperEngine.progress()
 }
